@@ -34,6 +34,9 @@ export default function DashboardScreen() {
   const [apiStatus, setApiStatus] = useState("checking");
   const [apiMessage, setApiMessage] = useState("");
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [waterLogs, setWaterLogs] = useState([]);
+  const [waterInput, setWaterInput] = useState("");
+  const [waterBusy, setWaterBusy] = useState(false);
   const [viewMode, setViewMode] = useState("meal");
   const [quickAdd, setQuickAdd] = useState({
     food_name: "",
@@ -47,10 +50,11 @@ export default function DashboardScreen() {
   const [editingMeal, setEditingMeal] = useState(null);
   const [editDraft, setEditDraft] = useState({
     food_name: "",
-    calories: "",
-    protein: "",
-    carbs: "",
-    fats: "",
+    grams: "100",
+    base_calories: "",
+    base_protein: "",
+    base_carbs: "",
+    base_fats: "",
   });
   const [editBusy, setEditBusy] = useState(false);
   const navigation = useNavigation();
@@ -110,19 +114,21 @@ export default function DashboardScreen() {
       const weeklyParams = `start_date=${formatDateParam(
         weeklyStart
       )}&end_date=${formatDateParam(today)}`;
-      const [summaryResponse, recentsResponse, logsResponse, targetsResponse, weeklyResponse] =
+      const [summaryResponse, recentsResponse, logsResponse, targetsResponse, weeklyResponse, waterResponse] =
         await Promise.all([
         fetchJson(`/daily-summary?target_date=${dateParam}`),
         fetchJson("/recents"),
         fetchJson(`/daily-logs?target_date=${dateParam}`),
         fetchJson("/macro-target"),
         fetchJson(`/daily-summaries?${weeklyParams}`),
+        fetchJson(`/water-logs?target_date=${dateParam}`),
       ]);
       setSummary(summaryResponse);
       setRecents(recentsResponse);
       setDailyLogs(logsResponse);
       setTargets(targetsResponse);
       setWeeklySummaries(weeklyResponse);
+      setWaterLogs(waterResponse);
       const streakCount = computeStreak(weeklyResponse);
       setStreak(streakCount);
       setError("");
@@ -150,15 +156,133 @@ export default function DashboardScreen() {
     }
   };
 
+  const handleCopyMeal = async (meal) => {
+    if (!meal) return;
+    try {
+      const baseCalories = meal.base_calories ?? meal.calories ?? 0;
+      const baseProtein = meal.base_protein ?? meal.protein ?? 0;
+      const baseCarbs = meal.base_carbs ?? meal.carbs ?? 0;
+      const baseFats = meal.base_fats ?? meal.fats ?? 0;
+      const gramsValue = meal.grams ?? 100;
+      await fetchJson("/log-meal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          food_name: meal.food_name,
+          source: "Copy",
+          calories: meal.calories,
+          protein: meal.protein,
+          carbs: meal.carbs,
+          fats: meal.fats,
+          grams: gramsValue,
+          base_calories: baseCalories,
+          base_protein: baseProtein,
+          base_carbs: baseCarbs,
+          base_fats: baseFats,
+          meal_slot: meal.meal_slot || 1,
+          timestamp: buildTimestamp(selectedDate),
+        }),
+      });
+      loadData();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const handleCopyYesterday = async () => {
+    try {
+      const fromDate = new Date(selectedDate);
+      fromDate.setDate(selectedDate.getDate() - 1);
+      const dateParam = formatDateParam(fromDate);
+      const logs = await fetchJson(`/daily-logs?target_date=${dateParam}`);
+      if (!logs.length) {
+        setError("No meals found for yesterday.");
+        return;
+      }
+      await Promise.all(
+        logs.map((log) =>
+          fetchJson("/log-meal", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              food_name: log.food_name,
+              source: "Copy",
+              calories: log.calories,
+              protein: log.protein,
+              carbs: log.carbs,
+              fats: log.fats,
+              grams: log.grams ?? 100,
+              base_calories: log.base_calories ?? log.calories ?? 0,
+              base_protein: log.base_protein ?? log.protein ?? 0,
+              base_carbs: log.base_carbs ?? log.carbs ?? 0,
+              base_fats: log.base_fats ?? log.fats ?? 0,
+              meal_slot: log.meal_slot || 1,
+              timestamp: buildTimestamp(selectedDate),
+            }),
+          })
+        )
+      );
+      loadData();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const waterTotal = useMemo(
+    () =>
+      waterLogs.reduce((total, log) => total + (log.amount_ml || 0), 0),
+    [waterLogs]
+  );
+  const waterGoal = 2000;
+  const waterProgress = Math.min(waterTotal / waterGoal, 1);
+
+  const addWaterLog = async (amount) => {
+    if (waterBusy) return;
+    const amountValue = Math.round(Number(amount) || 0);
+    if (!amountValue) return;
+    setWaterBusy(true);
+    try {
+      await fetchJson("/water-logs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount_ml: amountValue,
+          timestamp: buildTimestamp(selectedDate),
+        }),
+      });
+      setWaterInput("");
+      loadData();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setWaterBusy(false);
+    }
+  };
+
+  const deleteWaterLog = async (logId) => {
+    try {
+      await fetchJson(`/water-logs/${logId}`, { method: "DELETE" });
+      loadData();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   const startEdit = (meal) => {
     if (!meal) return;
+    const baseCalories = meal.base_calories ?? meal.calories ?? 0;
+    const baseProtein = meal.base_protein ?? meal.protein ?? 0;
+    const baseCarbs = meal.base_carbs ?? meal.carbs ?? 0;
+    const baseFats = meal.base_fats ?? meal.fats ?? 0;
+    const gramsValue = meal.grams ?? 100;
     setEditingMeal(meal.id);
     setEditDraft({
       food_name: meal.food_name || "",
-      calories: meal.calories != null ? String(meal.calories) : "",
-      protein: meal.protein != null ? String(meal.protein) : "",
-      carbs: meal.carbs != null ? String(meal.carbs) : "",
-      fats: meal.fats != null ? String(meal.fats) : "",
+      grams: String(gramsValue),
+      base_calories: String(baseCalories),
+      base_protein: String(baseProtein),
+      base_carbs: String(baseCarbs),
+      base_fats: String(baseFats),
     });
   };
 
@@ -166,10 +290,11 @@ export default function DashboardScreen() {
     setEditingMeal(null);
     setEditDraft({
       food_name: "",
-      calories: "",
-      protein: "",
-      carbs: "",
-      fats: "",
+      grams: "100",
+      base_calories: "",
+      base_protein: "",
+      base_carbs: "",
+      base_fats: "",
     });
   };
 
@@ -177,6 +302,12 @@ export default function DashboardScreen() {
     if (editBusy || !meal) return;
     setEditBusy(true);
     try {
+      const gramsValue = Number(editDraft.grams) || 100;
+      const factor = gramsValue / 100;
+      const baseCalories = Number(editDraft.base_calories) || 0;
+      const baseProtein = Number(editDraft.base_protein) || 0;
+      const baseCarbs = Number(editDraft.base_carbs) || 0;
+      const baseFats = Number(editDraft.base_fats) || 0;
       await fetchJson(`/log-meal/${meal.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -185,10 +316,15 @@ export default function DashboardScreen() {
           source: meal.source,
           meal_slot: meal.meal_slot || 1,
           timestamp: meal.timestamp,
-          calories: Math.round(Number(editDraft.calories) || 0),
-          protein: Number(editDraft.protein) || 0,
-          carbs: Number(editDraft.carbs) || 0,
-          fats: Number(editDraft.fats) || 0,
+          calories: Math.round(baseCalories * factor),
+          protein: baseProtein * factor,
+          carbs: baseCarbs * factor,
+          fats: baseFats * factor,
+          grams: gramsValue,
+          base_calories: Math.round(baseCalories),
+          base_protein: baseProtein,
+          base_carbs: baseCarbs,
+          base_fats: baseFats,
         }),
       });
       cancelEdit();
@@ -256,6 +392,11 @@ export default function DashboardScreen() {
           protein,
           carbs,
           fats,
+          grams: 100,
+          base_calories: calories,
+          base_protein: protein,
+          base_carbs: carbs,
+          base_fats: fats,
           meal_slot: quickAdd.meal_slot || 1,
           timestamp: buildTimestamp(selectedDate),
         }),
@@ -294,6 +435,37 @@ export default function DashboardScreen() {
     return totals;
   }, [dailyLogs, mealSlots]);
 
+  const mealCaloriesTarget =
+    targets.calories && mealsPerDay ? targets.calories / mealsPerDay : 0;
+
+  const macroSplit = useMemo(() => {
+    const proteinCals = (summary.protein || 0) * 4;
+    const carbCals = (summary.carbs || 0) * 4;
+    const fatCals = (summary.fats || 0) * 9;
+    const total = proteinCals + carbCals + fatCals;
+    return {
+      protein: proteinCals,
+      carbs: carbCals,
+      fats: fatCals,
+      total: total || 1,
+    };
+  }, [summary]);
+
+  const adherence = useMemo(() => {
+    if (!weeklySummaries.length || !targets.calories) {
+      return { percent: 0, hits: 0 };
+    }
+    const lower = targets.calories * 0.9;
+    const upper = targets.calories * 1.1;
+    const hits = weeklySummaries.filter(
+      (day) => (day.calories || 0) >= lower && (day.calories || 0) <= upper
+    ).length;
+    return {
+      percent: Math.round((hits / weeklySummaries.length) * 100),
+      hits,
+    };
+  }, [weeklySummaries, targets.calories]);
+
   const maxWeeklyCalories = Math.max(
     1,
     ...weeklySummaries.map((day) => day.calories || 0)
@@ -328,62 +500,41 @@ export default function DashboardScreen() {
           style={styles.input}
         />
       </View>
-      <View style={styles.row}>
-        <View style={styles.field}>
-          <Text style={styles.label}>Calories</Text>
-          <TextInput
-            value={editDraft.calories}
-            onChangeText={(value) =>
-              setEditDraft((prev) => ({ ...prev, calories: value }))
-            }
-            placeholder="kcal"
-            placeholderTextColor={colors.muted}
-            keyboardType="numeric"
-            style={[styles.input, styles.halfInput]}
-          />
-        </View>
-        <View style={styles.field}>
-          <Text style={styles.label}>Protein (g)</Text>
-          <TextInput
-            value={editDraft.protein}
-            onChangeText={(value) =>
-              setEditDraft((prev) => ({ ...prev, protein: value }))
-            }
-            placeholder="g"
-            placeholderTextColor={colors.muted}
-            keyboardType="numeric"
-            style={[styles.input, styles.halfInput]}
-          />
-        </View>
+      <Text style={styles.muted}>
+        Per 100g: {formatNumber(editDraft.base_calories)} kcal · P{" "}
+        {formatNumber(editDraft.base_protein)}g · C{" "}
+        {formatNumber(editDraft.base_carbs)}g · F{" "}
+        {formatNumber(editDraft.base_fats)}g
+      </Text>
+      <View style={styles.field}>
+        <Text style={styles.label}>Grams</Text>
+        <TextInput
+          value={editDraft.grams}
+          onChangeText={(value) =>
+            setEditDraft((prev) => ({ ...prev, grams: value }))
+          }
+          placeholder="100"
+          placeholderTextColor={colors.muted}
+          keyboardType="numeric"
+          style={styles.input}
+        />
       </View>
-      <View style={styles.row}>
-        <View style={styles.field}>
-          <Text style={styles.label}>Carbs (g)</Text>
-          <TextInput
-            value={editDraft.carbs}
-            onChangeText={(value) =>
-              setEditDraft((prev) => ({ ...prev, carbs: value }))
-            }
-            placeholder="g"
-            placeholderTextColor={colors.muted}
-            keyboardType="numeric"
-            style={[styles.input, styles.halfInput]}
-          />
-        </View>
-        <View style={styles.field}>
-          <Text style={styles.label}>Fats (g)</Text>
-          <TextInput
-            value={editDraft.fats}
-            onChangeText={(value) =>
-              setEditDraft((prev) => ({ ...prev, fats: value }))
-            }
-            placeholder="g"
-            placeholderTextColor={colors.muted}
-            keyboardType="numeric"
-            style={[styles.input, styles.halfInput]}
-          />
-        </View>
-      </View>
+      {(() => {
+        const gramsValue = Number(editDraft.grams) || 100;
+        const factor = gramsValue / 100;
+        const baseCalories = Number(editDraft.base_calories) || 0;
+        const baseProtein = Number(editDraft.base_protein) || 0;
+        const baseCarbs = Number(editDraft.base_carbs) || 0;
+        const baseFats = Number(editDraft.base_fats) || 0;
+        return (
+          <Text style={styles.muted}>
+            Totals: {formatNumber(baseCalories * factor)} kcal · P{" "}
+            {formatNumber(baseProtein * factor)}g · C{" "}
+            {formatNumber(baseCarbs * factor)}g · F{" "}
+            {formatNumber(baseFats * factor)}g
+          </Text>
+        );
+      })()}
       <View style={styles.editActions}>
         <Pressable
           style={({ pressed }) => [
@@ -466,6 +617,71 @@ export default function DashboardScreen() {
         goal={targets.fats || 0}
         unit="g"
       />
+
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>Water</Text>
+        <Text style={styles.streakBadge}>
+          {waterTotal} / {waterGoal} ml
+        </Text>
+      </View>
+      <View style={styles.waterCard}>
+        <View style={styles.waterTrack}>
+          <View style={[styles.waterFill, { width: `${waterProgress * 100}%` }]} />
+        </View>
+        <View style={styles.chipRow}>
+          {[250, 500, 750].map((amount) => (
+            <Pressable
+              key={amount}
+              style={styles.chip}
+              onPress={() => addWaterLog(amount)}
+              android_ripple={{ color: colors.softAccent }}
+            >
+              <Text style={styles.chipText}>+{amount} ml</Text>
+            </Pressable>
+          ))}
+        </View>
+        <View style={styles.row}>
+          <TextInput
+            value={waterInput}
+            onChangeText={setWaterInput}
+            placeholder="Custom ml"
+            placeholderTextColor={colors.muted}
+            keyboardType="numeric"
+            style={[styles.input, styles.halfInput]}
+          />
+          <Pressable
+            style={({ pressed }) => [
+              styles.addButton,
+              pressed && styles.addButtonPressed,
+            ]}
+            onPress={() => addWaterLog(waterInput)}
+            disabled={waterBusy}
+            android_ripple={{ color: colors.softAccent }}
+          >
+            <Text style={styles.addButtonText}>
+              {waterBusy ? "Adding..." : "Add"}
+            </Text>
+          </Pressable>
+        </View>
+        {waterLogs.length > 0 ? (
+          waterLogs.slice(0, 3).map((log) => (
+            <View key={log.id} style={styles.waterLogRow}>
+              <Text style={styles.muted}>
+                {formatTime(log.timestamp)} · {log.amount_ml} ml
+              </Text>
+              <Pressable
+                style={styles.deleteButton}
+                onPress={() => deleteWaterLog(log.id)}
+                android_ripple={{ color: colors.softDanger }}
+              >
+                <Text style={styles.deleteText}>Remove</Text>
+              </Pressable>
+            </View>
+          ))
+        ) : (
+          <Text style={styles.muted}>No water logged yet.</Text>
+        )}
+      </View>
 
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Quick Add</Text>
@@ -857,6 +1073,24 @@ const styles = StyleSheet.create({
     padding: 12,
     gap: 10,
   },
+  waterCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 12,
+    gap: 10,
+  },
+  waterTrack: {
+    height: 10,
+    backgroundColor: colors.border,
+    borderRadius: 999,
+    overflow: "hidden",
+  },
+  waterFill: {
+    height: "100%",
+    backgroundColor: colors.accent,
+  },
   chipRow: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -995,6 +1229,12 @@ const styles = StyleSheet.create({
   deleteText: {
     color: colors.danger,
     fontFamily: fonts.medium,
+  },
+  waterLogRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
   },
   error: {
     color: colors.danger,

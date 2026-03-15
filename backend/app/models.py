@@ -25,6 +25,11 @@ class DailyLog(SQLModel, table=True):
     protein: float
     carbs: float
     fats: float
+    grams: Optional[float] = None
+    base_calories: Optional[int] = None
+    base_protein: Optional[float] = None
+    base_carbs: Optional[float] = None
+    base_fats: Optional[float] = None
 
 
 class MacroTarget(SQLModel, table=True):
@@ -52,6 +57,12 @@ class UserProfile(SQLModel, table=True):
     sex: str = "unspecified"
     activity_level: str = "moderate"
     updated_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+
+
+class WaterLog(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    timestamp: datetime = Field(default_factory=datetime.utcnow, index=True)
+    amount_ml: int
 
 
 class FoodItem(SQLModel, table=True):

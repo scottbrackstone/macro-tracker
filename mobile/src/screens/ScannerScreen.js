@@ -69,11 +69,31 @@ export default function ScannerScreen() {
 
   const buildDraft = (data) => ({
     food_name: data.food_name ?? "",
-    calories: data.calories != null ? String(data.calories) : "",
-    protein: data.protein != null ? String(data.protein) : "",
-    carbs: data.carbs != null ? String(data.carbs) : "",
-    fats: data.fats != null ? String(data.fats) : "",
-    grams: "",
+    calories:
+      data.base_calories != null
+        ? String(data.base_calories)
+        : data.calories != null
+          ? String(data.calories)
+          : "",
+    protein:
+      data.base_protein != null
+        ? String(data.base_protein)
+        : data.protein != null
+          ? String(data.protein)
+          : "",
+    carbs:
+      data.base_carbs != null
+        ? String(data.base_carbs)
+        : data.carbs != null
+          ? String(data.carbs)
+          : "",
+    fats:
+      data.base_fats != null
+        ? String(data.base_fats)
+        : data.fats != null
+          ? String(data.fats)
+          : "",
+    grams: data.grams != null ? String(data.grams) : "",
     multiplier: "1",
   });
 
@@ -183,7 +203,13 @@ export default function ScannerScreen() {
     try {
       const isEdit = Boolean(editLogId);
       const gramsValue = Number(draft.grams);
-      const factor = gramsValue > 0 ? gramsValue / 100 : Number(draft.multiplier) || 1;
+      const multiplierValue = Number(draft.multiplier) || 1;
+      const gramsUsed = gramsValue > 0 ? gramsValue : 100 * multiplierValue;
+      const factor = gramsUsed / 100;
+      const baseCalories = Number(draft.calories) || 0;
+      const baseProtein = Number(draft.protein) || 0;
+      const baseCarbs = Number(draft.carbs) || 0;
+      const baseFats = Number(draft.fats) || 0;
       const endpoint = isEdit ? `/log-meal/${editLogId}` : "/log-meal";
       const method = isEdit ? "PUT" : "POST";
       await fetchJson(endpoint, {
@@ -192,10 +218,15 @@ export default function ScannerScreen() {
         body: JSON.stringify({
           food_name: draft.food_name || result.food_name,
           source: result.source,
-          calories: Math.round((Number(draft.calories) || 0) * factor),
-          protein: Number(draft.protein) * factor || 0,
-          carbs: Number(draft.carbs) * factor || 0,
-          fats: Number(draft.fats) * factor || 0,
+          calories: Math.round(baseCalories * factor),
+          protein: baseProtein * factor,
+          carbs: baseCarbs * factor,
+          fats: baseFats * factor,
+          grams: gramsUsed,
+          base_calories: Math.round(baseCalories),
+          base_protein: baseProtein,
+          base_carbs: baseCarbs,
+          base_fats: baseFats,
           meal_slot: result.meal_slot || 1,
         }),
       });
@@ -210,10 +241,15 @@ export default function ScannerScreen() {
             meal: {
               food_name: draft.food_name || result.food_name,
               source: "Planned",
-              calories: Math.round((Number(draft.calories) || 0) * factor),
-              protein: Number(draft.protein) * factor || 0,
-              carbs: Number(draft.carbs) * factor || 0,
-              fats: Number(draft.fats) * factor || 0,
+              calories: Math.round(baseCalories * factor),
+              protein: baseProtein * factor,
+              carbs: baseCarbs * factor,
+              fats: baseFats * factor,
+              grams: gramsUsed,
+              base_calories: Math.round(baseCalories),
+              base_protein: baseProtein,
+              base_carbs: baseCarbs,
+              base_fats: baseFats,
               meal_slot: result.meal_slot || 1,
             },
             dates,
@@ -344,16 +380,25 @@ export default function ScannerScreen() {
     setBusy(true);
     setStatus("Logging...");
     try {
+      const baseCalories = Number(item.calories) || 0;
+      const baseProtein = Number(item.protein) || 0;
+      const baseCarbs = Number(item.carbs) || 0;
+      const baseFats = Number(item.fats) || 0;
       await fetchJson("/log-meal", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           food_name: item.food_name || "Search item",
           source: "Search",
-          calories: Number(item.calories) || 0,
-          protein: Number(item.protein) || 0,
-          carbs: Number(item.carbs) || 0,
-          fats: Number(item.fats) || 0,
+          calories: Math.round(baseCalories),
+          protein: baseProtein,
+          carbs: baseCarbs,
+          fats: baseFats,
+          grams: 100,
+          base_calories: Math.round(baseCalories),
+          base_protein: baseProtein,
+          base_carbs: baseCarbs,
+          base_fats: baseFats,
           meal_slot: mealSlot,
         }),
       });
@@ -374,17 +419,27 @@ export default function ScannerScreen() {
     setStatus("Saving...");
     try {
       const gramsValue = Number(manual.grams);
-      const factor = gramsValue > 0 ? gramsValue / 100 : 1;
+      const gramsUsed = gramsValue > 0 ? gramsValue : 100;
+      const factor = gramsUsed / 100;
+      const baseCalories = Number(manual.calories) || 0;
+      const baseProtein = Number(manual.protein) || 0;
+      const baseCarbs = Number(manual.carbs) || 0;
+      const baseFats = Number(manual.fats) || 0;
       await fetchJson("/log-meal", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           food_name: manual.food_name.trim(),
           source: "Manual",
-          calories: Math.round((Number(manual.calories) || 0) * factor),
-          protein: Number(manual.protein) * factor || 0,
-          carbs: Number(manual.carbs) * factor || 0,
-          fats: Number(manual.fats) * factor || 0,
+          calories: Math.round(baseCalories * factor),
+          protein: baseProtein * factor,
+          carbs: baseCarbs * factor,
+          fats: baseFats * factor,
+          grams: gramsUsed,
+          base_calories: Math.round(baseCalories),
+          base_protein: baseProtein,
+          base_carbs: baseCarbs,
+          base_fats: baseFats,
           meal_slot: mealSlot,
         }),
       });
@@ -399,10 +454,15 @@ export default function ScannerScreen() {
             meal: {
               food_name: manual.food_name.trim(),
               source: "Planned",
-              calories: Math.round((Number(manual.calories) || 0) * factor),
-              protein: Number(manual.protein) * factor || 0,
-              carbs: Number(manual.carbs) * factor || 0,
-              fats: Number(manual.fats) * factor || 0,
+              calories: Math.round(baseCalories * factor),
+              protein: baseProtein * factor,
+              carbs: baseCarbs * factor,
+              fats: baseFats * factor,
+              grams: gramsUsed,
+              base_calories: Math.round(baseCalories),
+              base_protein: baseProtein,
+              base_carbs: baseCarbs,
+              base_fats: baseFats,
               meal_slot: mealSlot,
             },
             dates,

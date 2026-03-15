@@ -10,7 +10,16 @@ from sqlmodel import Session, select
 from sqlalchemy import func
 
 from .db import get_session, init_db
-from .models import CustomFood, DailyLog, FoodItem, MacroTarget, Recipe, UserProfile, WeightLog
+from .models import (
+    CustomFood,
+    DailyLog,
+    FoodItem,
+    MacroTarget,
+    Recipe,
+    UserProfile,
+    WeightLog,
+    WaterLog,
+)
 from .schemas import (
     BarcodeResult,
     BulkLogRequest,
@@ -29,6 +38,8 @@ from .schemas import (
     RecipeRead,
     UserProfileRead,
     UserProfileUpsert,
+    WaterLogCreate,
+    WaterLogRead,
     WeightLogCreate,
     WeightLogRead,
 )
@@ -88,6 +99,51 @@ def _serialize_recipe(recipe: Recipe) -> RecipeRead:
     )
 
 
+def _resolve_log_values(payload: DailyLogCreate) -> dict:
+    grams = payload.grams if payload.grams and payload.grams > 0 else None
+    base_calories = (
+        payload.base_calories if payload.base_calories is not None else payload.calories
+    )
+    base_protein = (
+        payload.base_protein if payload.base_protein is not None else payload.protein
+    )
+    base_carbs = (
+        payload.base_carbs if payload.base_carbs is not None else payload.carbs
+    )
+    base_fats = payload.base_fats if payload.base_fats is not None else payload.fats
+    use_scaling = (
+        payload.grams is not None
+        or payload.base_calories is not None
+        or payload.base_protein is not None
+        or payload.base_carbs is not None
+        or payload.base_fats is not None
+    )
+    safe_grams = grams if grams is not None else 100
+    if use_scaling:
+        factor = safe_grams / 100
+        calories = int(round((base_calories or 0) * factor))
+        protein = float((base_protein or 0) * factor)
+        carbs = float((base_carbs or 0) * factor)
+        fats = float((base_fats or 0) * factor)
+    else:
+        calories = payload.calories
+        protein = payload.protein
+        carbs = payload.carbs
+        fats = payload.fats
+        safe_grams = grams
+    return {
+        "grams": safe_grams,
+        "base_calories": base_calories,
+        "base_protein": base_protein,
+        "base_carbs": base_carbs,
+        "base_fats": base_fats,
+        "calories": calories,
+        "protein": protein,
+        "carbs": carbs,
+        "fats": fats,
+    }
+
+
 @app.on_event("startup")
 def on_startup() -> None:
     init_db()
@@ -101,15 +157,21 @@ def root() -> dict:
 @app.post("/log-meal", response_model=DailyLogRead)
 def log_meal(payload: DailyLogCreate, session: Session = Depends(get_session)) -> DailyLog:
     timestamp = payload.timestamp or datetime.utcnow()
+    resolved = _resolve_log_values(payload)
     log = DailyLog(
         timestamp=timestamp,
         food_name=payload.food_name,
         source=payload.source,
         meal_slot=payload.meal_slot or 1,
-        calories=payload.calories,
-        protein=payload.protein,
-        carbs=payload.carbs,
-        fats=payload.fats,
+        calories=resolved["calories"],
+        protein=resolved["protein"],
+        carbs=resolved["carbs"],
+        fats=resolved["fats"],
+        grams=resolved["grams"],
+        base_calories=resolved["base_calories"],
+        base_protein=resolved["base_protein"],
+        base_carbs=resolved["base_carbs"],
+        base_fats=resolved["base_fats"],
     )
     session.add(log)
     session.commit()
@@ -124,14 +186,20 @@ def update_log_meal(
     log = session.get(DailyLog, log_id)
     if not log:
         raise HTTPException(status_code=404, detail="Meal log not found.")
+    resolved = _resolve_log_values(payload)
     log.timestamp = payload.timestamp or log.timestamp
     log.food_name = payload.food_name
     log.source = payload.source
     log.meal_slot = payload.meal_slot or 1
-    log.calories = payload.calories
-    log.protein = payload.protein
-    log.carbs = payload.carbs
-    log.fats = payload.fats
+    log.calories = resolved["calories"]
+    log.protein = resolved["protein"]
+    log.carbs = resolved["carbs"]
+    log.fats = resolved["fats"]
+    log.grams = resolved["grams"]
+    log.base_calories = resolved["base_calories"]
+    log.base_protein = resolved["base_protein"]
+    log.base_carbs = resolved["base_carbs"]
+    log.base_fats = resolved["base_fats"]
     session.add(log)
     session.commit()
     session.refresh(log)
@@ -142,6 +210,7 @@ def update_log_meal(
 def log_meals_bulk(payload: BulkLogRequest, session: Session = Depends(get_session)) -> List[DailyLog]:
     if not payload.dates:
         raise HTTPException(status_code=400, detail="No dates provided.")
+    resolved = _resolve_log_values(payload.meal)
     unique_dates = sorted(set(payload.dates))
     logs: List[DailyLog] = []
     for target_date in unique_dates:
@@ -151,10 +220,15 @@ def log_meals_bulk(payload: BulkLogRequest, session: Session = Depends(get_sessi
             food_name=payload.meal.food_name,
             source=payload.meal.source,
             meal_slot=payload.meal.meal_slot or 1,
-            calories=payload.meal.calories,
-            protein=payload.meal.protein,
-            carbs=payload.meal.carbs,
-            fats=payload.meal.fats,
+            calories=resolved["calories"],
+            protein=resolved["protein"],
+            carbs=resolved["carbs"],
+            fats=resolved["fats"],
+            grams=resolved["grams"],
+            base_calories=resolved["base_calories"],
+            base_protein=resolved["base_protein"],
+            base_carbs=resolved["base_carbs"],
+            base_fats=resolved["base_fats"],
         )
         session.add(log)
         logs.append(log)
@@ -314,6 +388,44 @@ def delete_weight_log(log_id: int, session: Session = Depends(get_session)) -> d
     log = session.get(WeightLog, log_id)
     if not log:
         raise HTTPException(status_code=404, detail="Weight log not found.")
+    session.delete(log)
+    session.commit()
+    return {"status": "deleted", "id": log_id}
+
+
+@app.get("/water-logs", response_model=List[WaterLogRead])
+def water_logs(
+    target_date: date | None = None, session: Session = Depends(get_session)
+) -> List[WaterLog]:
+    summary_date = target_date or date.today()
+    start = datetime.combine(summary_date, time.min)
+    end = datetime.combine(summary_date, time.max)
+    statement = (
+        select(WaterLog)
+        .where(WaterLog.timestamp >= start)
+        .where(WaterLog.timestamp <= end)
+        .order_by(WaterLog.timestamp.desc())
+    )
+    return session.exec(statement).all()
+
+
+@app.post("/water-logs", response_model=WaterLogRead)
+def create_water_log(
+    payload: WaterLogCreate, session: Session = Depends(get_session)
+) -> WaterLog:
+    timestamp = payload.timestamp or datetime.utcnow()
+    log = WaterLog(timestamp=timestamp, amount_ml=payload.amount_ml)
+    session.add(log)
+    session.commit()
+    session.refresh(log)
+    return log
+
+
+@app.delete("/water-logs/{log_id}")
+def delete_water_log(log_id: int, session: Session = Depends(get_session)) -> dict:
+    log = session.get(WaterLog, log_id)
+    if not log:
+        raise HTTPException(status_code=404, detail="Water log not found.")
     session.delete(log)
     session.commit()
     return {"status": "deleted", "id": log_id}

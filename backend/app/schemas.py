@@ -14,6 +14,11 @@ class DailyLogCreate(SQLModel):
     protein: float
     carbs: float
     fats: float
+    grams: Optional[float] = None
+    base_calories: Optional[int] = None
+    base_protein: Optional[float] = None
+    base_carbs: Optional[float] = None
+    base_fats: Optional[float] = None
     timestamp: Optional[datetime] = None
 
 
@@ -27,6 +32,11 @@ class DailyLogRead(SQLModel):
     protein: float
     carbs: float
     fats: float
+    grams: Optional[float] = None
+    base_calories: Optional[int] = None
+    base_protein: Optional[float] = None
+    base_carbs: Optional[float] = None
+    base_fats: Optional[float] = None
 
 
 class DailySummary(SQLModel):
@@ -181,3 +191,14 @@ class UserProfileRead(SQLModel):
     sex: str
     activity_level: str
     updated_at: datetime
+
+
+class WaterLogCreate(SQLModel):
+    amount_ml: int
+    timestamp: Optional[datetime] = None
+
+
+class WaterLogRead(SQLModel):
+    id: int
+    timestamp: datetime
+    amount_ml: int
