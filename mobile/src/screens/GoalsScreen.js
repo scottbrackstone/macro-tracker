@@ -35,6 +35,7 @@ export default function GoalsScreen() {
   const [weightNotes, setWeightNotes] = useState("");
   const [weightLogs, setWeightLogs] = useState([]);
   const [status, setStatus] = useState("");
+  const formatNumber = (value) => Number(value || 0).toFixed(1);
 
   const loadData = useCallback(async () => {
     try {
@@ -341,21 +342,21 @@ export default function GoalsScreen() {
           <View style={styles.macroNote}>
             <Text style={styles.muted}>
               Estimated grams: P{" "}
-              {Math.round(
+              {formatNumber(
                 (Number(macroTarget.calories) *
                   (Number(macroTarget.protein) || 0)) /
                   100 /
                   4
               )}{" "}
               g · C{" "}
-              {Math.round(
+              {formatNumber(
                 (Number(macroTarget.calories) *
                   (Number(macroTarget.carbs) || 0)) /
                   100 /
                   4
               )}{" "}
               g · F{" "}
-              {Math.round(
+              {formatNumber(
                 (Number(macroTarget.calories) *
                   (Number(macroTarget.fats) || 0)) /
                   100 /
@@ -482,9 +483,9 @@ export default function GoalsScreen() {
         {estimatedCalories ? (
           <View style={styles.estimateRow}>
             <Text style={styles.muted}>
-              Estimated maintenance: {estimatedCalories} kcal/day
-              {caloriesAuto ? " (auto-filled)" : ""}
-            </Text>
+            Estimated maintenance: {formatNumber(estimatedCalories)} kcal/day
+            {caloriesAuto ? " (auto-filled)" : ""}
+          </Text>
             <Pressable
               style={({ pressed }) => [
                 styles.secondaryButton,
@@ -561,7 +562,9 @@ export default function GoalsScreen() {
                 </View>
                 <View style={styles.weightMeta}>
                   <Text style={styles.weightLabel}>{log.log_date}</Text>
-                  <Text style={styles.weightValue}>{log.weight}</Text>
+                  <Text style={styles.weightValue}>
+                    {formatNumber(log.weight)}
+                  </Text>
                 </View>
               </View>
             ))}
@@ -574,7 +577,7 @@ export default function GoalsScreen() {
           weightLogs.map((log) => (
             <View key={log.id} style={styles.logItem}>
               <View style={styles.logInfo}>
-                <Text style={styles.logValue}>{log.weight}</Text>
+                <Text style={styles.logValue}>{formatNumber(log.weight)}</Text>
                 <Text style={styles.logDate}>{log.log_date}</Text>
                 {log.notes ? (
                   <Text style={styles.logNotes}>{log.notes}</Text>

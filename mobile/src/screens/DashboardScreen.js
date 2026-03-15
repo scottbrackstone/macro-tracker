@@ -63,6 +63,7 @@ export default function DashboardScreen() {
 
   const formatShortDate = (dateValue) =>
     dateValue.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const formatNumber = (value) => Number(value || 0).toFixed(1);
   const formatTime = (value) =>
     new Date(value).toLocaleTimeString(undefined, {
       hour: "numeric",
@@ -455,13 +456,22 @@ export default function DashboardScreen() {
                     {getMealLabel(meal.meal_slot || 1)}
                   </Text>
                 </View>
-                <View style={styles.logInfo}>
+                <Pressable
+                  style={styles.logInfo}
+                  onPress={() =>
+                    navigation.navigate("Scanner", {
+                      manualOnly: true,
+                      editLog: meal,
+                    })
+                  }
+                >
                   <Text style={styles.recentName}>{meal.food_name}</Text>
                   <Text style={styles.recentMeta}>
-                    {meal.calories} kcal · P {meal.protein}g · C {meal.carbs}g · F{" "}
-                    {meal.fats}g
+                    {formatNumber(meal.calories)} kcal · P{" "}
+                    {formatNumber(meal.protein)}g · C {formatNumber(meal.carbs)}g · F{" "}
+                    {formatNumber(meal.fats)}g
                   </Text>
-                </View>
+                </Pressable>
                 <Pressable
                   style={styles.deleteButton}
                   onPress={() => handleDelete(meal.id)}
@@ -496,23 +506,32 @@ export default function DashboardScreen() {
             </View>
             {groupedMeals[slot] && groupedMeals[slot].length > 0 ? (
               <Text style={styles.mealMeta}>
-                {mealTotals[slot]?.calories || 0} kcal · P{" "}
-                {Math.round(mealTotals[slot]?.protein || 0)}g · C{" "}
-                {Math.round(mealTotals[slot]?.carbs || 0)}g · F{" "}
-                {Math.round(mealTotals[slot]?.fats || 0)}g
+                {formatNumber(mealTotals[slot]?.calories)} kcal · P{" "}
+                {formatNumber(mealTotals[slot]?.protein)}g · C{" "}
+                {formatNumber(mealTotals[slot]?.carbs)}g · F{" "}
+                {formatNumber(mealTotals[slot]?.fats)}g
               </Text>
             ) : null}
             {groupedMeals[slot] && groupedMeals[slot].length > 0 ? (
               groupedMeals[slot].map((meal) => (
                 <View key={meal.id} style={styles.logItem}>
-                  <View style={styles.logInfo}>
+                  <Pressable
+                    style={styles.logInfo}
+                    onPress={() =>
+                      navigation.navigate("Scanner", {
+                        manualOnly: true,
+                        editLog: meal,
+                      })
+                    }
+                  >
                     <Text style={styles.recentName}>{meal.food_name}</Text>
                     <Text style={styles.recentMeta}>
-                      {meal.calories} kcal · P {meal.protein}g · C {meal.carbs}g · F{" "}
-                      {meal.fats}g
+                      {formatNumber(meal.calories)} kcal · P{" "}
+                      {formatNumber(meal.protein)}g · C {formatNumber(meal.carbs)}g · F{" "}
+                      {formatNumber(meal.fats)}g
                     </Text>
                     <Text style={styles.logSource}>{meal.source}</Text>
-                  </View>
+                  </Pressable>
                   <Pressable
                     style={styles.deleteButton}
                     onPress={() => handleDelete(meal.id)}
@@ -545,7 +564,9 @@ export default function DashboardScreen() {
               <Text style={styles.weeklyLabel}>
                 {formatShortDate(new Date(day.date))}
               </Text>
-              <Text style={styles.weeklyValue}>{day.calories} kcal</Text>
+              <Text style={styles.weeklyValue}>
+                {formatNumber(day.calories)} kcal
+              </Text>
             </View>
           </View>
         ))}
@@ -560,8 +581,9 @@ export default function DashboardScreen() {
             <View style={styles.logInfo}>
               <Text style={styles.recentName}>{meal.food_name}</Text>
               <Text style={styles.recentMeta}>
-                {meal.calories} kcal · P {meal.protein}g · C {meal.carbs}g · F{" "}
-                {meal.fats}g
+                {formatNumber(meal.calories)} kcal · P{" "}
+                {formatNumber(meal.protein)}g · C {formatNumber(meal.carbs)}g · F{" "}
+                {formatNumber(meal.fats)}g
               </Text>
             </View>
             <Pressable

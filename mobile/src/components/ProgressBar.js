@@ -5,14 +5,15 @@ import { colors, fonts } from "../theme";
 export default function ProgressBar({ label, value, goal, unit }) {
   const safeGoal = goal > 0 ? goal : 1;
   const progress = Math.min(value / safeGoal, 1);
-  const goalLabel = goal > 0 ? Math.round(goal) : "--";
+  const formatNumber = (num) => Number(num || 0).toFixed(1);
+  const goalLabel = goal > 0 ? formatNumber(goal) : "--";
 
   return (
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.label}>{label}</Text>
         <Text style={styles.value}>
-          {Math.round(value)} / {goalLabel} {unit}
+          {formatNumber(value)} / {goalLabel} {unit}
         </Text>
       </View>
       <View style={styles.track}>

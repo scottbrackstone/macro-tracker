@@ -39,6 +39,8 @@ export default function ScannerScreen() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
   const [searching, setSearching] = useState(false);
+  const [favoriteSaved, setFavoriteSaved] = useState(false);
+  const [favoriteBusy, setFavoriteBusy] = useState(false);
   const [manual, setManual] = useState({
     food_name: "",
     calories: "",
@@ -48,6 +50,7 @@ export default function ScannerScreen() {
     grams: "",
   });
   const [planDays, setPlanDays] = useState([]);
+  const [editLogId, setEditLogId] = useState(null);
 
   const planOffsets = [1, 2, 3, 4, 5, 6, 7];
   const formatDateParam = (dateValue) =>
@@ -56,6 +59,7 @@ export default function ScannerScreen() {
     dateValue.toLocaleDateString(undefined, { weekday: "short" });
   const formatDayNumber = (dateValue) =>
     dateValue.toLocaleDateString(undefined, { day: "numeric" });
+  const formatNumber = (value) => Number(value || 0).toFixed(1);
   const buildDate = (offset) => {
     const base = new Date();
     const next = new Date(base);
@@ -76,6 +80,7 @@ export default function ScannerScreen() {
   const applyResult = (data) => {
     setResult({ ...data, meal_slot: mealSlot });
     setDraft(buildDraft(data));
+    setFavoriteSaved(false);
   };
 
   useEffect(() => {
@@ -91,6 +96,22 @@ export default function ScannerScreen() {
       setMode(MODES.MANUAL);
     } else {
       setManualOnly(false);
+    }
+    if (route.params?.editLog) {
+      const log = route.params.editLog;
+      setEditLogId(log.id);
+      applyResult({
+        food_name: log.food_name,
+        calories: log.calories,
+        protein: log.protein,
+        carbs: log.carbs,
+        fats: log.fats,
+        source: log.source,
+        meal_slot: log.meal_slot || 1,
+      });
+      setStatus("Editing meal. Update and save.");
+    } else {
+      setEditLogId(null);
     }
   }, [route.params]);
 
@@ -140,7 +161,7 @@ export default function ScannerScreen() {
     setScanBanner("Barcode captured. Looking up item...");
     try {
       const response = await fetchJson(`/scan-barcode/${data}`);
-      applyResult({ ...response, source: "Barcode" });
+      applyResult({ ...response, source: "Barcode", barcode: data });
       setStatus("Review and confirm.");
       setScanBanner(`Captured: ${response.food_name}`);
     } catch (err) {
@@ -160,10 +181,13 @@ export default function ScannerScreen() {
     setBusy(true);
     setStatus("Saving...");
     try {
+      const isEdit = Boolean(editLogId);
       const gramsValue = Number(draft.grams);
       const factor = gramsValue > 0 ? gramsValue / 100 : Number(draft.multiplier) || 1;
-      await fetchJson("/log-meal", {
-        method: "POST",
+      const endpoint = isEdit ? `/log-meal/${editLogId}` : "/log-meal";
+      const method = isEdit ? "PUT" : "POST";
+      await fetchJson(endpoint, {
+        method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           food_name: draft.food_name || result.food_name,
@@ -175,7 +199,7 @@ export default function ScannerScreen() {
           meal_slot: result.meal_slot || 1,
         }),
       });
-      if (planDays.length > 0) {
+      if (!isEdit && planDays.length > 0) {
         const dates = planDays.map((offset) =>
           formatDateParam(buildDate(offset))
         );
@@ -199,7 +223,8 @@ export default function ScannerScreen() {
       setResult(null);
       setDraft(null);
       setPlanDays([]);
-      setStatus("Saved!");
+      setEditLogId(null);
+      setStatus(isEdit ? "Updated!" : "Saved!");
     } catch (err) {
       const message =
         err.message?.includes("Network request failed")
@@ -248,6 +273,49 @@ export default function ScannerScreen() {
       grams: "",
     });
     setStatus("Loaded from database. Adjust grams if needed.");
+    fetchJson("/food-items", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        food_name: item.food_name || "Search item",
+        calories: Number(item.calories) || 0,
+        protein: Number(item.protein) || 0,
+        carbs: Number(item.carbs) || 0,
+        fats: Number(item.fats) || 0,
+        source: "Search",
+        brand: item.brand || null,
+        serving_size: item.serving_size || null,
+      }),
+    }).catch(() => {});
+  };
+
+  const saveFavorite = async () => {
+    if (!result || favoriteBusy || favoriteSaved) return;
+    setFavoriteBusy(true);
+    try {
+      await fetchJson("/food-items", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          food_name: result.food_name,
+          calories: Number(result.calories) || 0,
+          protein: Number(result.protein) || 0,
+          carbs: Number(result.carbs) || 0,
+          fats: Number(result.fats) || 0,
+          source: result.source || "Manual",
+          barcode: result.barcode || null,
+          brand: result.brand || null,
+          serving_size: result.serving_size || null,
+          is_favorite: true,
+        }),
+      });
+      setFavoriteSaved(true);
+      setStatus("Saved to favorites.");
+    } catch (err) {
+      setStatus(err.message);
+    } finally {
+      setFavoriteBusy(false);
+    }
   };
 
   const searchFood = async () => {
@@ -268,6 +336,32 @@ export default function ScannerScreen() {
       setStatus(err.message);
     } finally {
       setSearching(false);
+    }
+  };
+
+  const quickLogSearchItem = async (item) => {
+    if (busy) return;
+    setBusy(true);
+    setStatus("Logging...");
+    try {
+      await fetchJson("/log-meal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          food_name: item.food_name || "Search item",
+          source: "Search",
+          calories: Number(item.calories) || 0,
+          protein: Number(item.protein) || 0,
+          carbs: Number(item.carbs) || 0,
+          fats: Number(item.fats) || 0,
+          meal_slot: mealSlot,
+        }),
+      });
+      setStatus("Logged.");
+    } catch (err) {
+      setStatus(err.message);
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -636,6 +730,19 @@ export default function ScannerScreen() {
           ) : null}
           <Pressable
             style={({ pressed }) => [
+              styles.secondaryButton,
+              pressed && styles.secondaryButtonPressed,
+            ]}
+            onPress={saveFavorite}
+            disabled={favoriteBusy || favoriteSaved}
+            android_ripple={{ color: colors.softAccent }}
+          >
+            <Text style={styles.secondaryText}>
+              {favoriteSaved ? "Saved to favorites" : "Save to favorites"}
+            </Text>
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [
               styles.button,
               pressed && styles.buttonPressed,
             ]}
@@ -661,11 +768,11 @@ export default function ScannerScreen() {
                 onPress={() => applyRecent(meal)}
                 android_ripple={{ color: colors.softAccent }}
               >
-                <Text style={styles.recentName}>{meal.food_name}</Text>
-                <Text style={styles.recentMeta}>
-                  {meal.calories} kcal · P {meal.protein}g · C {meal.carbs}g · F{" "}
-                  {meal.fats}g
-                </Text>
+            <Text style={styles.recentName}>{meal.food_name}</Text>
+            <Text style={styles.recentMeta}>
+              {formatNumber(meal.calories)} kcal · P {formatNumber(meal.protein)}g · C{" "}
+              {formatNumber(meal.carbs)}g · F {formatNumber(meal.fats)}g
+            </Text>
               </Pressable>
             ))
           )}
@@ -694,18 +801,31 @@ export default function ScannerScreen() {
       </View>
       {searching ? <ActivityIndicator /> : null}
       {searchResults.map((item, index) => (
-        <Pressable
-          key={`${item.food_name}-${index}`}
-          style={styles.searchResult}
-          onPress={() => applySearchResult(item)}
-          android_ripple={{ color: colors.softAccent }}
-        >
-          <Text style={styles.recentName}>{item.food_name}</Text>
-          <Text style={styles.recentMeta}>
-            {item.calories ?? "-"} kcal · P {item.protein ?? "-"}g · C{" "}
-            {item.carbs ?? "-"}g · F {item.fats ?? "-"}g
-          </Text>
-        </Pressable>
+        <View key={`${item.food_name}-${index}`} style={styles.searchResultRow}>
+          <Pressable
+            style={styles.searchResultInfo}
+            onPress={() => applySearchResult(item)}
+            android_ripple={{ color: colors.softAccent }}
+          >
+            <Text style={styles.recentName}>{item.food_name}</Text>
+            <Text style={styles.recentMeta}>
+              {item.calories != null ? formatNumber(item.calories) : "-"} kcal · P{" "}
+              {item.protein != null ? formatNumber(item.protein) : "-"}g · C{" "}
+              {item.carbs != null ? formatNumber(item.carbs) : "-"}g · F{" "}
+              {item.fats != null ? formatNumber(item.fats) : "-"}g
+            </Text>
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [
+              styles.quickAddButton,
+              pressed && styles.quickAddButtonPressed,
+            ]}
+            onPress={() => quickLogSearchItem(item)}
+            android_ripple={{ color: colors.softAccent }}
+          >
+            <Text style={styles.quickAddText}>+</Text>
+          </Pressable>
+        </View>
       ))}
 
       <Text style={styles.sectionTitle}>Manual Entry</Text>
@@ -856,6 +976,21 @@ const styles = StyleSheet.create({
   buttonPressed: {
     opacity: 0.85,
   },
+  secondaryButton: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingVertical: 10,
+    borderRadius: 10,
+    alignItems: "center",
+  },
+  secondaryButtonPressed: {
+    backgroundColor: colors.softAccent,
+  },
+  secondaryText: {
+    fontFamily: fonts.medium,
+    color: colors.ink,
+  },
   buttonText: {
     color: "#fff",
     fontFamily: fonts.medium,
@@ -985,6 +1120,36 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderBottomColor: colors.border,
     borderBottomWidth: 1,
+  },
+  searchResultRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    paddingVertical: 10,
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+  },
+  searchResultInfo: {
+    flex: 1,
+  },
+  quickAddButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.softAccent,
+    borderWidth: 1,
+    borderColor: colors.accent,
+  },
+  quickAddButtonPressed: {
+    opacity: 0.8,
+  },
+  quickAddText: {
+    fontFamily: fonts.bold,
+    color: colors.accent,
+    fontSize: 18,
   },
   recentName: {
     fontSize: 16,

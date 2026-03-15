@@ -66,6 +66,68 @@ class BarcodeResult(SQLModel):
     serving_size: Optional[str] = None
 
 
+class FoodItemCreate(SQLModel):
+    food_name: str
+    calories: int
+    protein: float
+    carbs: float
+    fats: float
+    source: str = "Manual"
+    barcode: Optional[str] = None
+    brand: Optional[str] = None
+    serving_size: Optional[str] = None
+    is_favorite: bool = False
+
+
+class FoodItemRead(SQLModel):
+    id: int
+    food_name: str
+    calories: int
+    protein: float
+    carbs: float
+    fats: float
+    source: str
+    barcode: Optional[str] = None
+    brand: Optional[str] = None
+    serving_size: Optional[str] = None
+    is_favorite: bool
+    created_at: datetime
+
+
+class FoodItemFavorite(SQLModel):
+    is_favorite: bool
+
+
+class RecipeIngredient(SQLModel):
+    name: str
+    calories: int
+    protein: float
+    carbs: float
+    fats: float
+
+
+class RecipeCreate(SQLModel):
+    name: str
+    servings: int = 1
+    ingredients: list[RecipeIngredient] = Field(default_factory=list)
+    calories: Optional[int] = None
+    protein: Optional[float] = None
+    carbs: Optional[float] = None
+    fats: Optional[float] = None
+
+
+class RecipeRead(SQLModel):
+    id: int
+    name: str
+    servings: int
+    calories: int
+    protein: float
+    carbs: float
+    fats: float
+    ingredients: list[RecipeIngredient]
+    created_at: datetime
+
+
 class BulkLogRequest(SQLModel):
     meal: DailyLogCreate
     dates: list[date]

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Pressable,
   ScrollView,
@@ -14,7 +14,11 @@ import { colors, fonts } from "../theme";
 
 export default function LibraryScreen() {
   const [foods, setFoods] = useState([]);
+  const [favorites, setFavorites] = useState([]);
+  const [history, setHistory] = useState([]);
+  const [recipes, setRecipes] = useState([]);
   const [status, setStatus] = useState("");
+  const [libraryView, setLibraryView] = useState("favorites");
   const [form, setForm] = useState({
     name: "",
     calories: "",
@@ -22,12 +26,38 @@ export default function LibraryScreen() {
     carbs: "",
     fats: "",
   });
+  const [ingredientForm, setIngredientForm] = useState({
+    name: "",
+    calories: "",
+    protein: "",
+    carbs: "",
+    fats: "",
+  });
+  const [recipeForm, setRecipeForm] = useState({
+    name: "",
+    servings: "1",
+  });
+  const [recipeIngredients, setRecipeIngredients] = useState([]);
+  const [recipeSearchQuery, setRecipeSearchQuery] = useState("");
+  const [recipeSearchResults, setRecipeSearchResults] = useState([]);
+  const [recipeSearching, setRecipeSearching] = useState(false);
   const navigation = useNavigation();
+
+  const formatNumber = (value) => Number(value || 0).toFixed(1);
 
   const loadFoods = useCallback(async () => {
     try {
-      const data = await fetchJson("/custom-foods");
-      setFoods(data);
+      const [foodsData, favoritesData, historyData, recipesData] =
+        await Promise.all([
+          fetchJson("/custom-foods"),
+          fetchJson("/food-items?favorites=true&limit=30"),
+          fetchJson("/food-items?limit=30"),
+          fetchJson("/recipes"),
+        ]);
+      setFoods(foodsData);
+      setFavorites(favoritesData);
+      setHistory(historyData);
+      setRecipes(recipesData);
     } catch (err) {
       setStatus(err.message);
     }
@@ -86,6 +116,7 @@ export default function LibraryScreen() {
 
   const useFood = (food) => {
     navigation.navigate("Scanner", {
+      manualOnly: true,
       prefill: {
         food_name: food.name,
         calories: food.calories,
@@ -96,10 +127,452 @@ export default function LibraryScreen() {
     });
   };
 
+  const toggleFavorite = async (item) => {
+    try {
+      const updated = await fetchJson(`/food-items/${item.id}/favorite`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_favorite: !item.is_favorite }),
+      });
+      setFavorites((prev) => {
+        if (updated.is_favorite) {
+          return [updated, ...prev.filter((fav) => fav.id !== updated.id)];
+        }
+        return prev.filter((fav) => fav.id !== updated.id);
+      });
+      setHistory((prev) =>
+        prev.map((entry) => (entry.id === updated.id ? updated : entry))
+      );
+    } catch (err) {
+      setStatus(err.message);
+    }
+  };
+
+  const useFoodItem = (item) => {
+    navigation.navigate("Scanner", {
+      manualOnly: true,
+      prefill: {
+        food_name: item.food_name,
+        calories: item.calories,
+        protein: item.protein,
+        carbs: item.carbs,
+        fats: item.fats,
+      },
+    });
+  };
+
+  const addIngredientManual = () => {
+    if (!ingredientForm.name.trim()) {
+      setStatus("Please enter an ingredient name.");
+      return;
+    }
+    const ingredient = {
+      name: ingredientForm.name.trim(),
+      calories: Number(ingredientForm.calories) || 0,
+      protein: Number(ingredientForm.protein) || 0,
+      carbs: Number(ingredientForm.carbs) || 0,
+      fats: Number(ingredientForm.fats) || 0,
+    };
+    setRecipeIngredients((prev) => [...prev, ingredient]);
+    setIngredientForm({
+      name: "",
+      calories: "",
+      protein: "",
+      carbs: "",
+      fats: "",
+    });
+  };
+
+  const removeIngredient = (index) => {
+    setRecipeIngredients((prev) => prev.filter((_, idx) => idx !== index));
+  };
+
+  const recipeTotals = useMemo(() => {
+    return recipeIngredients.reduce(
+      (acc, item) => ({
+        calories: acc.calories + (Number(item.calories) || 0),
+        protein: acc.protein + (Number(item.protein) || 0),
+        carbs: acc.carbs + (Number(item.carbs) || 0),
+        fats: acc.fats + (Number(item.fats) || 0),
+      }),
+      { calories: 0, protein: 0, carbs: 0, fats: 0 }
+    );
+  }, [recipeIngredients]);
+
+  const servings = Math.max(1, Number(recipeForm.servings) || 1);
+  const perServing = {
+    calories: recipeTotals.calories / servings,
+    protein: recipeTotals.protein / servings,
+    carbs: recipeTotals.carbs / servings,
+    fats: recipeTotals.fats / servings,
+  };
+
+  const saveRecipe = async () => {
+    if (!recipeForm.name.trim()) {
+      setStatus("Please enter a recipe name.");
+      return;
+    }
+    setStatus("Saving recipe...");
+    try {
+      const created = await fetchJson("/recipes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: recipeForm.name.trim(),
+          servings,
+          ingredients: recipeIngredients,
+        }),
+      });
+      setRecipes((prev) => [created, ...prev]);
+      setRecipeForm({ name: "", servings: "1" });
+      setRecipeIngredients([]);
+      setRecipeSearchResults([]);
+      setRecipeSearchQuery("");
+      setStatus("Recipe saved.");
+    } catch (err) {
+      setStatus(err.message);
+    }
+  };
+
+  const deleteRecipe = async (recipeId) => {
+    try {
+      await fetchJson(`/recipes/${recipeId}`, { method: "DELETE" });
+      setRecipes((prev) => prev.filter((recipe) => recipe.id !== recipeId));
+    } catch (err) {
+      setStatus(err.message);
+    }
+  };
+
+  const useRecipe = (recipe) => {
+    const servingCount = Math.max(1, Number(recipe.servings) || 1);
+    navigation.navigate("Scanner", {
+      manualOnly: true,
+      prefill: {
+        food_name: recipe.name,
+        calories: recipe.calories / servingCount,
+        protein: recipe.protein / servingCount,
+        carbs: recipe.carbs / servingCount,
+        fats: recipe.fats / servingCount,
+      },
+    });
+  };
+
+  const searchRecipeFoods = async () => {
+    const query = recipeSearchQuery.trim();
+    if (!query) {
+      setStatus("Enter a food to search.");
+      return;
+    }
+    setRecipeSearching(true);
+    try {
+      const results = await fetchJson(
+        `/search-food?query=${encodeURIComponent(query)}`
+      );
+      setRecipeSearchResults(results);
+    } catch (err) {
+      setStatus(err.message);
+    } finally {
+      setRecipeSearching(false);
+    }
+  };
+
+  const addIngredientFromSearch = (item) => {
+    setRecipeIngredients((prev) => [
+      ...prev,
+      {
+        name: item.food_name || "Ingredient",
+        calories: Number(item.calories) || 0,
+        protein: Number(item.protein) || 0,
+        carbs: Number(item.carbs) || 0,
+        fats: Number(item.fats) || 0,
+      },
+    ]);
+  };
+
+  const listItems = libraryView === "favorites" ? favorites : history;
+
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>Food Library</Text>
       {status ? <Text style={styles.status}>{status}</Text> : null}
+
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Favorites & History</Text>
+        <View style={styles.toggleRow}>
+          {["favorites", "history"].map((option) => (
+            <Pressable
+              key={option}
+              style={[
+                styles.toggleButton,
+                libraryView === option && styles.toggleButtonActive,
+              ]}
+              onPress={() => setLibraryView(option)}
+              android_ripple={{ color: colors.softAccent }}
+            >
+              <Text style={styles.toggleText}>{option}</Text>
+            </Pressable>
+          ))}
+        </View>
+        {listItems.length === 0 ? (
+          <Text style={styles.muted}>No items yet.</Text>
+        ) : (
+          listItems.map((item) => (
+            <View key={item.id} style={styles.listItem}>
+              <View style={styles.listInfo}>
+                <Text style={styles.foodName}>{item.food_name}</Text>
+                <Text style={styles.foodMeta}>
+                  {formatNumber(item.calories)} kcal · P {formatNumber(item.protein)}g
+                  · C {formatNumber(item.carbs)}g · F {formatNumber(item.fats)}g
+                </Text>
+                {item.brand ? (
+                  <Text style={styles.muted}>{item.brand}</Text>
+                ) : null}
+              </View>
+              <View style={styles.listActions}>
+                <Pressable
+                  style={styles.useButton}
+                  onPress={() => useFoodItem(item)}
+                  android_ripple={{ color: colors.softSuccess }}
+                >
+                  <Text style={styles.useText}>Use</Text>
+                </Pressable>
+                <Pressable
+                  style={[
+                    styles.favoriteButton,
+                    item.is_favorite && styles.favoriteButtonActive,
+                  ]}
+                  onPress={() => toggleFavorite(item)}
+                  android_ripple={{ color: colors.softAccent }}
+                >
+                  <Text style={styles.favoriteText}>
+                    {item.is_favorite ? "★" : "☆"}
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+          ))
+        )}
+      </View>
+
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Build a Recipe</Text>
+        <View style={styles.field}>
+          <Text style={styles.label}>Recipe name</Text>
+          <TextInput
+            value={recipeForm.name}
+            onChangeText={(value) =>
+              setRecipeForm((prev) => ({ ...prev, name: value }))
+            }
+            placeholder="e.g. Chicken stir fry"
+            placeholderTextColor={colors.muted}
+            style={styles.input}
+          />
+        </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>Servings</Text>
+          <TextInput
+            value={recipeForm.servings}
+            onChangeText={(value) =>
+              setRecipeForm((prev) => ({ ...prev, servings: value }))
+            }
+            placeholder="1"
+            placeholderTextColor={colors.muted}
+            keyboardType="numeric"
+            style={styles.input}
+          />
+        </View>
+
+        <Text style={styles.sectionTitle}>Search ingredients</Text>
+        <View style={styles.searchRow}>
+          <TextInput
+            value={recipeSearchQuery}
+            onChangeText={setRecipeSearchQuery}
+            placeholder="e.g. banana"
+            placeholderTextColor={colors.muted}
+            style={[styles.input, styles.searchInput]}
+          />
+          <Pressable
+            style={styles.searchButton}
+            onPress={searchRecipeFoods}
+            android_ripple={{ color: colors.softAccent }}
+          >
+            <Text style={styles.searchButtonText}>Search</Text>
+          </Pressable>
+        </View>
+        {recipeSearching ? <Text style={styles.muted}>Searching…</Text> : null}
+        {recipeSearchResults.map((item, index) => (
+          <View key={`${item.food_name}-${index}`} style={styles.searchRowItem}>
+            <View style={styles.listInfo}>
+              <Text style={styles.foodName}>{item.food_name}</Text>
+              <Text style={styles.foodMeta}>
+                {formatNumber(item.calories)} kcal · P {formatNumber(item.protein)}g
+                · C {formatNumber(item.carbs)}g · F {formatNumber(item.fats)}g
+              </Text>
+            </View>
+            <Pressable
+              style={styles.quickAddButton}
+              onPress={() => addIngredientFromSearch(item)}
+              android_ripple={{ color: colors.softAccent }}
+            >
+              <Text style={styles.quickAddText}>+</Text>
+            </Pressable>
+          </View>
+        ))}
+
+        <Text style={styles.sectionTitle}>Add ingredient</Text>
+        <View style={styles.field}>
+          <Text style={styles.label}>Name</Text>
+          <TextInput
+            value={ingredientForm.name}
+            onChangeText={(value) =>
+              setIngredientForm((prev) => ({ ...prev, name: value }))
+            }
+            placeholder="Ingredient name"
+            placeholderTextColor={colors.muted}
+            style={styles.input}
+          />
+        </View>
+        <View style={styles.row}>
+          <View style={styles.field}>
+            <Text style={styles.label}>Calories</Text>
+            <TextInput
+              value={ingredientForm.calories}
+              onChangeText={(value) =>
+                setIngredientForm((prev) => ({ ...prev, calories: value }))
+              }
+              placeholder="kcal"
+              placeholderTextColor={colors.muted}
+              keyboardType="numeric"
+              style={[styles.input, styles.halfInput]}
+            />
+          </View>
+          <View style={styles.field}>
+            <Text style={styles.label}>Protein (g)</Text>
+            <TextInput
+              value={ingredientForm.protein}
+              onChangeText={(value) =>
+                setIngredientForm((prev) => ({ ...prev, protein: value }))
+              }
+              placeholder="g"
+              placeholderTextColor={colors.muted}
+              keyboardType="numeric"
+              style={[styles.input, styles.halfInput]}
+            />
+          </View>
+        </View>
+        <View style={styles.row}>
+          <View style={styles.field}>
+            <Text style={styles.label}>Carbs (g)</Text>
+            <TextInput
+              value={ingredientForm.carbs}
+              onChangeText={(value) =>
+                setIngredientForm((prev) => ({ ...prev, carbs: value }))
+              }
+              placeholder="g"
+              placeholderTextColor={colors.muted}
+              keyboardType="numeric"
+              style={[styles.input, styles.halfInput]}
+            />
+          </View>
+          <View style={styles.field}>
+            <Text style={styles.label}>Fats (g)</Text>
+            <TextInput
+              value={ingredientForm.fats}
+              onChangeText={(value) =>
+                setIngredientForm((prev) => ({ ...prev, fats: value }))
+              }
+              placeholder="g"
+              placeholderTextColor={colors.muted}
+              keyboardType="numeric"
+              style={[styles.input, styles.halfInput]}
+            />
+          </View>
+        </View>
+        <Pressable style={styles.secondaryButton} onPress={addIngredientManual}>
+          <Text style={styles.secondaryText}>Add ingredient</Text>
+        </Pressable>
+
+        {recipeIngredients.length === 0 ? (
+          <Text style={styles.muted}>No ingredients yet.</Text>
+        ) : (
+          recipeIngredients.map((ingredient, index) => (
+            <View key={`${ingredient.name}-${index}`} style={styles.listItem}>
+              <View style={styles.listInfo}>
+                <Text style={styles.foodName}>{ingredient.name}</Text>
+                <Text style={styles.foodMeta}>
+                  {formatNumber(ingredient.calories)} kcal · P{" "}
+                  {formatNumber(ingredient.protein)}g · C{" "}
+                  {formatNumber(ingredient.carbs)}g · F{" "}
+                  {formatNumber(ingredient.fats)}g
+                </Text>
+              </View>
+              <Pressable
+                style={styles.deleteButton}
+                onPress={() => removeIngredient(index)}
+                android_ripple={{ color: colors.softDanger }}
+              >
+                <Text style={styles.deleteText}>Remove</Text>
+              </Pressable>
+            </View>
+          ))
+        )}
+
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryTitle}>Recipe totals</Text>
+          <Text style={styles.foodMeta}>
+            {formatNumber(recipeTotals.calories)} kcal · P{" "}
+            {formatNumber(recipeTotals.protein)}g · C{" "}
+            {formatNumber(recipeTotals.carbs)}g · F{" "}
+            {formatNumber(recipeTotals.fats)}g
+          </Text>
+          <Text style={styles.muted}>
+            Per serving ({servings}): {formatNumber(perServing.calories)} kcal · P{" "}
+            {formatNumber(perServing.protein)}g · C {formatNumber(perServing.carbs)}g · F{" "}
+            {formatNumber(perServing.fats)}g
+          </Text>
+        </View>
+
+        <Pressable style={styles.primaryButton} onPress={saveRecipe}>
+          <Text style={styles.primaryText}>Save Recipe</Text>
+        </Pressable>
+      </View>
+
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Saved Recipes</Text>
+        {recipes.length === 0 ? (
+          <Text style={styles.muted}>No recipes yet.</Text>
+        ) : (
+          recipes.map((recipe) => (
+            <View key={recipe.id} style={styles.listItem}>
+              <View style={styles.listInfo}>
+                <Text style={styles.foodName}>{recipe.name}</Text>
+                <Text style={styles.foodMeta}>
+                  {formatNumber(recipe.calories)} kcal · P{" "}
+                  {formatNumber(recipe.protein)}g · C {formatNumber(recipe.carbs)}g · F{" "}
+                  {formatNumber(recipe.fats)}g
+                </Text>
+                <Text style={styles.muted}>Servings: {recipe.servings}</Text>
+              </View>
+              <View style={styles.listActions}>
+                <Pressable
+                  style={styles.useButton}
+                  onPress={() => useRecipe(recipe)}
+                  android_ripple={{ color: colors.softSuccess }}
+                >
+                  <Text style={styles.useText}>Use</Text>
+                </Pressable>
+                <Pressable
+                  style={styles.deleteButton}
+                  onPress={() => deleteRecipe(recipe.id)}
+                  android_ripple={{ color: colors.softDanger }}
+                >
+                  <Text style={styles.deleteText}>Delete</Text>
+                </Pressable>
+              </View>
+            </View>
+          ))
+        )}
+      </View>
 
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Add Custom Food</Text>
@@ -180,21 +653,26 @@ export default function LibraryScreen() {
           <Text style={styles.muted}>No saved foods yet.</Text>
         ) : (
           foods.map((food) => (
-            <View key={food.id} style={styles.foodItem}>
-              <View style={styles.foodInfo}>
+            <View key={food.id} style={styles.listItem}>
+              <View style={styles.listInfo}>
                 <Text style={styles.foodName}>{food.name}</Text>
                 <Text style={styles.foodMeta}>
-                  {food.calories} kcal · P {food.protein}g · C {food.carbs}g · F{" "}
-                  {food.fats}g
+                  {formatNumber(food.calories)} kcal · P {formatNumber(food.protein)}g · C{" "}
+                  {formatNumber(food.carbs)}g · F {formatNumber(food.fats)}g
                 </Text>
               </View>
-              <View style={styles.foodActions}>
-                <Pressable style={styles.useButton} onPress={() => useFood(food)}>
+              <View style={styles.listActions}>
+                <Pressable
+                  style={styles.useButton}
+                  onPress={() => useFood(food)}
+                  android_ripple={{ color: colors.softSuccess }}
+                >
                   <Text style={styles.useText}>Use</Text>
                 </Pressable>
                 <Pressable
                   style={styles.deleteButton}
                   onPress={() => deleteFood(food.id)}
+                  android_ripple={{ color: colors.softDanger }}
                 >
                   <Text style={styles.deleteText}>Delete</Text>
                 </Pressable>
@@ -235,6 +713,32 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontFamily: fonts.bold,
     color: colors.ink,
+  },
+  sectionTitle: {
+    fontSize: 14,
+    fontFamily: fonts.medium,
+    color: colors.ink,
+  },
+  toggleRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  toggleButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  toggleButtonActive: {
+    backgroundColor: colors.softAccent,
+    borderColor: colors.accent,
+  },
+  toggleText: {
+    fontFamily: fonts.medium,
+    color: colors.ink,
+    textTransform: "capitalize",
   },
   row: {
     flexDirection: "row",
@@ -278,18 +782,35 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontFamily: fonts.medium,
   },
+  secondaryButton: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingVertical: 10,
+    borderRadius: 10,
+    alignItems: "center",
+  },
+  secondaryText: {
+    color: colors.ink,
+    fontFamily: fonts.medium,
+  },
   muted: {
     color: colors.muted,
     fontFamily: fonts.regular,
   },
-  foodItem: {
+  listItem: {
     paddingVertical: 10,
     borderBottomColor: colors.border,
     borderBottomWidth: 1,
     gap: 8,
   },
-  foodInfo: {
+  listInfo: {
     gap: 4,
+    flex: 1,
+  },
+  listActions: {
+    flexDirection: "row",
+    gap: 8,
   },
   foodName: {
     fontFamily: fonts.medium,
@@ -298,10 +819,6 @@ const styles = StyleSheet.create({
   foodMeta: {
     fontFamily: fonts.regular,
     color: colors.muted,
-  },
-  foodActions: {
-    flexDirection: "row",
-    gap: 8,
   },
   useButton: {
     backgroundColor: colors.softSuccess,
@@ -322,5 +839,75 @@ const styles = StyleSheet.create({
   deleteText: {
     color: colors.danger,
     fontFamily: fonts.medium,
+  },
+  favoriteButton: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  favoriteButtonActive: {
+    backgroundColor: colors.softAccent,
+    borderColor: colors.accent,
+  },
+  favoriteText: {
+    fontFamily: fonts.medium,
+    color: colors.accent,
+  },
+  summaryCard: {
+    backgroundColor: colors.softAccent,
+    borderRadius: 12,
+    padding: 12,
+    gap: 6,
+  },
+  summaryTitle: {
+    fontFamily: fonts.medium,
+    color: colors.ink,
+  },
+  searchRow: {
+    flexDirection: "row",
+    gap: 10,
+    alignItems: "center",
+  },
+  searchInput: {
+    flex: 1,
+  },
+  searchButton: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  searchButtonText: {
+    fontFamily: fonts.medium,
+    color: colors.ink,
+  },
+  searchRowItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    paddingVertical: 10,
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+  },
+  quickAddButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.softAccent,
+    borderWidth: 1,
+    borderColor: colors.accent,
+  },
+  quickAddText: {
+    fontFamily: fonts.bold,
+    color: colors.accent,
+    fontSize: 18,
   },
 });

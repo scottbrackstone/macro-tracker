@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
+import json
 from typing import List
 
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
@@ -9,17 +10,23 @@ from sqlmodel import Session, select
 from sqlalchemy import func
 
 from .db import get_session, init_db
-from .models import CustomFood, DailyLog, MacroTarget, UserProfile, WeightLog
+from .models import CustomFood, DailyLog, FoodItem, MacroTarget, Recipe, UserProfile, WeightLog
 from .schemas import (
     BarcodeResult,
     BulkLogRequest,
     DailyLogCreate,
     DailyLogRead,
     DailySummary,
+    FoodItemCreate,
+    FoodItemFavorite,
+    FoodItemRead,
     FoodEstimate,
     MacroTargetRead,
     MacroTargetUpsert,
     RecentMeal,
+    RecipeCreate,
+    RecipeIngredient,
+    RecipeRead,
     UserProfileRead,
     UserProfileUpsert,
     WeightLogCreate,
@@ -42,6 +49,42 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def _parse_ingredients(raw: str) -> list[RecipeIngredient]:
+    try:
+        payload = json.loads(raw) if raw else []
+    except json.JSONDecodeError:
+        payload = []
+    ingredients: list[RecipeIngredient] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        ingredients.append(
+            RecipeIngredient(
+                name=str(item.get("name") or "Ingredient"),
+                calories=int(item.get("calories") or 0),
+                protein=float(item.get("protein") or 0),
+                carbs=float(item.get("carbs") or 0),
+                fats=float(item.get("fats") or 0),
+            )
+        )
+    return ingredients
+
+
+def _serialize_recipe(recipe: Recipe) -> RecipeRead:
+    ingredients = _parse_ingredients(recipe.ingredients_json)
+    return RecipeRead(
+        id=recipe.id,
+        name=recipe.name,
+        servings=recipe.servings,
+        calories=recipe.calories,
+        protein=recipe.protein,
+        carbs=recipe.carbs,
+        fats=recipe.fats,
+        ingredients=ingredients,
+        created_at=recipe.created_at,
+    )
 
 
 @app.on_event("startup")
@@ -67,6 +110,27 @@ def log_meal(payload: DailyLogCreate, session: Session = Depends(get_session)) -
         carbs=payload.carbs,
         fats=payload.fats,
     )
+    session.add(log)
+    session.commit()
+    session.refresh(log)
+    return log
+
+
+@app.put("/log-meal/{log_id}", response_model=DailyLogRead)
+def update_log_meal(
+    log_id: int, payload: DailyLogCreate, session: Session = Depends(get_session)
+) -> DailyLog:
+    log = session.get(DailyLog, log_id)
+    if not log:
+        raise HTTPException(status_code=404, detail="Meal log not found.")
+    log.timestamp = payload.timestamp or log.timestamp
+    log.food_name = payload.food_name
+    log.source = payload.source
+    log.meal_slot = payload.meal_slot or 1
+    log.calories = payload.calories
+    log.protein = payload.protein
+    log.carbs = payload.carbs
+    log.fats = payload.fats
     session.add(log)
     session.commit()
     session.refresh(log)
@@ -332,6 +396,165 @@ def delete_custom_food(food_id: int, session: Session = Depends(get_session)) ->
     return {"status": "deleted", "id": food_id}
 
 
+@app.get("/food-items", response_model=List[FoodItemRead])
+def list_food_items(
+    favorites: bool | None = None, limit: int = 20, session: Session = Depends(get_session)
+) -> List[FoodItemRead]:
+    safe_limit = max(1, min(limit, 100))
+    statement = select(FoodItem)
+    if favorites is not None:
+        statement = statement.where(FoodItem.is_favorite == favorites)
+    statement = statement.order_by(FoodItem.created_at.desc()).limit(safe_limit * 3)
+    items = session.exec(statement).all()
+    if favorites is None:
+        seen = set()
+        deduped: list[FoodItem] = []
+        for item in items:
+            key = item.food_name.strip().lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(item)
+        items = deduped[:safe_limit]
+    else:
+        items = items[:safe_limit]
+    return [
+        FoodItemRead(
+            id=item.id,
+            food_name=item.food_name,
+            calories=item.calories,
+            protein=item.protein,
+            carbs=item.carbs,
+            fats=item.fats,
+            source=item.source,
+            barcode=item.barcode,
+            brand=item.brand,
+            serving_size=item.serving_size,
+            is_favorite=item.is_favorite,
+            created_at=item.created_at,
+        )
+        for item in items
+    ]
+
+
+@app.post("/food-items", response_model=FoodItemRead)
+def create_food_item(
+    payload: FoodItemCreate, session: Session = Depends(get_session)
+) -> FoodItemRead:
+    item = FoodItem(
+        food_name=payload.food_name,
+        calories=payload.calories,
+        protein=payload.protein,
+        carbs=payload.carbs,
+        fats=payload.fats,
+        source=payload.source,
+        barcode=payload.barcode,
+        brand=payload.brand,
+        serving_size=payload.serving_size,
+        is_favorite=payload.is_favorite,
+    )
+    session.add(item)
+    session.commit()
+    session.refresh(item)
+    return FoodItemRead(
+        id=item.id,
+        food_name=item.food_name,
+        calories=item.calories,
+        protein=item.protein,
+        carbs=item.carbs,
+        fats=item.fats,
+        source=item.source,
+        barcode=item.barcode,
+        brand=item.brand,
+        serving_size=item.serving_size,
+        is_favorite=item.is_favorite,
+        created_at=item.created_at,
+    )
+
+
+@app.put("/food-items/{item_id}/favorite", response_model=FoodItemRead)
+def update_food_favorite(
+    item_id: int, payload: FoodItemFavorite, session: Session = Depends(get_session)
+) -> FoodItemRead:
+    item = session.get(FoodItem, item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Food item not found.")
+    item.is_favorite = payload.is_favorite
+    session.add(item)
+    session.commit()
+    session.refresh(item)
+    return FoodItemRead(
+        id=item.id,
+        food_name=item.food_name,
+        calories=item.calories,
+        protein=item.protein,
+        carbs=item.carbs,
+        fats=item.fats,
+        source=item.source,
+        barcode=item.barcode,
+        brand=item.brand,
+        serving_size=item.serving_size,
+        is_favorite=item.is_favorite,
+        created_at=item.created_at,
+    )
+
+
+@app.delete("/food-items/{item_id}")
+def delete_food_item(item_id: int, session: Session = Depends(get_session)) -> dict:
+    item = session.get(FoodItem, item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Food item not found.")
+    session.delete(item)
+    session.commit()
+    return {"status": "deleted", "id": item_id}
+
+
+@app.get("/recipes", response_model=List[RecipeRead])
+def list_recipes(session: Session = Depends(get_session)) -> List[RecipeRead]:
+    statement = select(Recipe).order_by(Recipe.created_at.desc())
+    recipes = session.exec(statement).all()
+    return [_serialize_recipe(recipe) for recipe in recipes]
+
+
+@app.post("/recipes", response_model=RecipeRead)
+def create_recipe(payload: RecipeCreate, session: Session = Depends(get_session)) -> RecipeRead:
+    servings = max(1, payload.servings or 1)
+    ingredients = payload.ingredients or []
+    if ingredients:
+        total_calories = sum(item.calories for item in ingredients)
+        total_protein = sum(item.protein for item in ingredients)
+        total_carbs = sum(item.carbs for item in ingredients)
+        total_fats = sum(item.fats for item in ingredients)
+    else:
+        total_calories = int(payload.calories or 0)
+        total_protein = float(payload.protein or 0)
+        total_carbs = float(payload.carbs or 0)
+        total_fats = float(payload.fats or 0)
+    recipe = Recipe(
+        name=payload.name,
+        servings=servings,
+        calories=total_calories,
+        protein=total_protein,
+        carbs=total_carbs,
+        fats=total_fats,
+        ingredients_json=json.dumps([item.model_dump() for item in ingredients]),
+    )
+    session.add(recipe)
+    session.commit()
+    session.refresh(recipe)
+    return _serialize_recipe(recipe)
+
+
+@app.delete("/recipes/{recipe_id}")
+def delete_recipe(recipe_id: int, session: Session = Depends(get_session)) -> dict:
+    recipe = session.get(Recipe, recipe_id)
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found.")
+    session.delete(recipe)
+    session.commit()
+    return {"status": "deleted", "id": recipe_id}
+
+
 @app.post("/analyze-photo", response_model=FoodEstimate)
 async def analyze_photo(file: UploadFile = File(...)) -> FoodEstimate:
     if not file.content_type or not file.content_type.startswith("image/"):
@@ -346,11 +569,30 @@ async def analyze_photo(file: UploadFile = File(...)) -> FoodEstimate:
 
 
 @app.get("/scan-barcode/{barcode_number}", response_model=BarcodeResult)
-def scan_barcode(barcode_number: str) -> BarcodeResult:
+def scan_barcode(
+    barcode_number: str, session: Session = Depends(get_session)
+) -> BarcodeResult:
     if not barcode_number.isdigit() or len(barcode_number) not in {8, 12, 13, 14}:
         raise HTTPException(status_code=400, detail="Invalid barcode length.")
     try:
-        return fetch_barcode(barcode_number)
+        result = fetch_barcode(barcode_number)
+        try:
+            item = FoodItem(
+                food_name=result.food_name,
+                calories=result.calories or 0,
+                protein=result.protein or 0,
+                carbs=result.carbs or 0,
+                fats=result.fats or 0,
+                source="Barcode",
+                barcode=barcode_number,
+                brand=result.brand,
+                serving_size=result.serving_size,
+            )
+            session.add(item)
+            session.commit()
+        except Exception:
+            session.rollback()
+        return result
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
