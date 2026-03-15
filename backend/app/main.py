@@ -175,7 +175,7 @@ def daily_logs(target_date: date | None = None, session: Session = Depends(get_s
 
 @app.get("/weight-logs", response_model=List[WeightLogRead])
 def weight_logs(limit: int = 30, session: Session = Depends(get_session)) -> List[WeightLog]:
-    statement = select(WeightLog).order_by(WeightLog.date.desc()).limit(limit)
+    statement = select(WeightLog).order_by(WeightLog.log_date.desc()).limit(limit)
     return session.exec(statement).all()
 
 
@@ -184,7 +184,7 @@ def create_weight_log(
     payload: WeightLogCreate, session: Session = Depends(get_session)
 ) -> WeightLog:
     log = WeightLog(
-        date=payload.date or date.today(),
+        log_date=payload.log_date or date.today(),
         weight=payload.weight,
         notes=payload.notes,
     )

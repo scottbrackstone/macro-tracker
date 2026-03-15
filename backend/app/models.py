@@ -37,6 +37,6 @@ class MacroTarget(SQLModel, table=True):
 
 class WeightLog(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    date: date = Field(default_factory=date.today, index=True)
+    log_date: date = Field(default_factory=date.today, index=True)
     weight: float
     notes: Optional[str] = None

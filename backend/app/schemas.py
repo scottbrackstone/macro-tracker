@@ -86,13 +86,13 @@ class MacroTargetRead(SQLModel):
 
 
 class WeightLogCreate(SQLModel):
-    date: Optional[date] = None
+    log_date: Optional[date] = None
     weight: float
     notes: Optional[str] = None
 
 
 class WeightLogRead(SQLModel):
     id: int
-    date: date
+    log_date: date
     weight: float
     notes: Optional[str] = None

@@ -184,7 +184,7 @@ export default function GoalsScreen() {
             <View key={log.id} style={styles.logItem}>
               <View style={styles.logInfo}>
                 <Text style={styles.logValue}>{log.weight}</Text>
-                <Text style={styles.logDate}>{log.date}</Text>
+                <Text style={styles.logDate}>{log.log_date}</Text>
                 {log.notes ? (
                   <Text style={styles.logNotes}>{log.notes}</Text>
                 ) : null}
