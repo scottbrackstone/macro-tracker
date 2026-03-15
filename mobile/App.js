@@ -1,4 +1,5 @@
 import { NavigationContainer } from "@react-navigation/native";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import {
   SpaceGrotesk_400Regular,
   SpaceGrotesk_600SemiBold,
@@ -20,8 +21,10 @@ export default function App() {
   }
 
   return (
-    <NavigationContainer>
-      <RootTabs />
-    </NavigationContainer>
+    <SafeAreaProvider>
+      <NavigationContainer>
+        <RootTabs />
+      </NavigationContainer>
+    </SafeAreaProvider>
   );
 }
