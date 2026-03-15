@@ -27,6 +27,7 @@ from .schemas import (
 )
 from .services.gemini import analyze_food_image
 from .services.openfoodfacts import fetch_barcode, search_foods
+from .services.usda import search_usda_foods
 from .settings import get_settings
 
 settings = get_settings()
@@ -361,9 +362,33 @@ def search_food(query: str) -> List[BarcodeResult]:
     query = query.strip()
     if len(query) < 2:
         raise HTTPException(status_code=400, detail="Query too short.")
+    results: List[BarcodeResult] = []
+    errors: list[Exception] = []
+
     try:
-        return search_foods(query)
-    except TimeoutError as exc:
-        raise HTTPException(status_code=504, detail="Food search timed out. Try again.") from exc
+        results.extend(search_foods(query))
     except Exception as exc:
-        raise HTTPException(status_code=502, detail="Food search failed.") from exc
+        errors.append(exc)
+
+    if settings.usda_api_key:
+        try:
+            results.extend(search_usda_foods(query, settings.usda_api_key))
+        except Exception as exc:
+            errors.append(exc)
+
+    if results:
+        seen = set()
+        deduped: List[BarcodeResult] = []
+        for item in results:
+            key = item.food_name.strip().lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(item)
+        return deduped[:20]
+
+    if any(isinstance(err, TimeoutError) for err in errors):
+        raise HTTPException(status_code=504, detail="Food search timed out. Try again.")
+    if errors:
+        raise HTTPException(status_code=502, detail="Food search failed.")
+    return []
