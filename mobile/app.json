@@ -1,0 +1,9 @@
+{
+  "expo": {
+    "name": "Macro Tracker",
+    "slug": "macro-tracker",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "platforms": ["ios", "android", "web"]
+  }
+}

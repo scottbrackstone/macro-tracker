@@ -1,0 +1,14 @@
+.env
+.env.*
+.DS_Store
+.idea/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Node/Expo
+node_modules/
+.expo/
+dist/
