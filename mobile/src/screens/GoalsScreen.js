@@ -18,7 +18,18 @@ export default function GoalsScreen() {
     protein: "",
     carbs: "",
     fats: "",
+    meals_per_day: "3",
   });
+  const [macroMode, setMacroMode] = useState("grams");
+  const [autoFillMacro, setAutoFillMacro] = useState("none");
+  const [profile, setProfile] = useState({
+    age: "",
+    height_cm: "",
+    weight_kg: "",
+    sex: "unspecified",
+    activity_level: "moderate",
+  });
+  const [estimatedCalories, setEstimatedCalories] = useState(null);
   const [weightInput, setWeightInput] = useState("");
   const [weightNotes, setWeightNotes] = useState("");
   const [weightLogs, setWeightLogs] = useState([]);
@@ -26,17 +37,26 @@ export default function GoalsScreen() {
 
   const loadData = useCallback(async () => {
     try {
-      const [targetResponse, weightResponse] = await Promise.all([
+      const [targetResponse, weightResponse, profileResponse] = await Promise.all([
         fetchJson("/macro-target"),
         fetchJson("/weight-logs"),
+        fetchJson("/profile"),
       ]);
       setMacroTarget({
         calories: String(targetResponse.calories ?? ""),
         protein: String(targetResponse.protein ?? ""),
         carbs: String(targetResponse.carbs ?? ""),
         fats: String(targetResponse.fats ?? ""),
+        meals_per_day: String(targetResponse.meals_per_day ?? "3"),
       });
       setWeightLogs(weightResponse);
+      setProfile({
+        age: String(profileResponse.age ?? ""),
+        height_cm: String(profileResponse.height_cm ?? ""),
+        weight_kg: String(profileResponse.weight_kg ?? ""),
+        sex: profileResponse.sex || "unspecified",
+        activity_level: profileResponse.activity_level || "moderate",
+      });
     } catch (err) {
       setStatus(err.message);
     }
@@ -55,20 +75,102 @@ export default function GoalsScreen() {
   const saveTargets = async () => {
     setStatus("Saving targets...");
     try {
+      const calories = Number(macroTarget.calories) || 0;
+      const proteinInput = Number(macroTarget.protein) || 0;
+      const carbsInput = Number(macroTarget.carbs) || 0;
+      const fatsInput = Number(macroTarget.fats) || 0;
+
+      let protein = proteinInput;
+      let carbs = carbsInput;
+      let fats = fatsInput;
+
+      if (macroMode === "percent" && calories > 0) {
+        protein = (calories * (proteinInput / 100)) / 4;
+        carbs = (calories * (carbsInput / 100)) / 4;
+        fats = (calories * (fatsInput / 100)) / 9;
+      } else if (macroMode === "grams" && calories > 0) {
+        const macroCalories = {
+          protein: proteinInput * 4,
+          carbs: carbsInput * 4,
+          fats: fatsInput * 9,
+        };
+        if (autoFillMacro !== "none") {
+          const remaining =
+            calories -
+            (macroCalories.protein +
+              macroCalories.carbs +
+              macroCalories.fats -
+              macroCalories[autoFillMacro]);
+          const grams =
+            autoFillMacro === "fats"
+              ? remaining / 9
+              : remaining / 4;
+          if (autoFillMacro === "protein") protein = Math.max(0, grams);
+          if (autoFillMacro === "carbs") carbs = Math.max(0, grams);
+          if (autoFillMacro === "fats") fats = Math.max(0, grams);
+        }
+      }
+
       await fetchJson("/macro-target", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          calories: Number(macroTarget.calories) || 0,
-          protein: Number(macroTarget.protein) || 0,
-          carbs: Number(macroTarget.carbs) || 0,
-          fats: Number(macroTarget.fats) || 0,
+          calories,
+          protein,
+          carbs,
+          fats,
+          meals_per_day: Number(macroTarget.meals_per_day) || 3,
         }),
       });
       setStatus("Targets saved.");
     } catch (err) {
       setStatus(err.message);
     }
+  };
+
+  const saveProfile = async () => {
+    setStatus("Saving profile...");
+    try {
+      await fetchJson("/profile", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          age: Number(profile.age) || 0,
+          height_cm: Number(profile.height_cm) || 0,
+          weight_kg: Number(profile.weight_kg) || 0,
+          sex: profile.sex,
+          activity_level: profile.activity_level,
+        }),
+      });
+      setStatus("Profile saved.");
+    } catch (err) {
+      setStatus(err.message);
+    }
+  };
+
+  const estimateCalories = () => {
+    const age = Number(profile.age) || 0;
+    const height = Number(profile.height_cm) || 0;
+    const weight = Number(profile.weight_kg) || 0;
+    if (!age || !height || !weight) {
+      setStatus("Enter age, height, and weight to estimate.");
+      return;
+    }
+    const isFemale = profile.sex === "female";
+    const bmr = isFemale
+      ? 10 * weight + 6.25 * height - 5 * age - 161
+      : 10 * weight + 6.25 * height - 5 * age + 5;
+    const activityMap = {
+      sedentary: 1.2,
+      light: 1.375,
+      moderate: 1.55,
+      active: 1.725,
+      very_active: 1.9,
+    };
+    const multiplier = activityMap[profile.activity_level] || 1.55;
+    const estimate = Math.round(bmr * multiplier);
+    setEstimatedCalories(estimate);
+    setMacroTarget((prev) => ({ ...prev, calories: String(estimate) }));
   };
 
   const addWeight = async () => {
@@ -104,6 +206,9 @@ export default function GoalsScreen() {
     }
   };
 
+  const weightChart = weightLogs.slice(0, 7).reverse();
+  const maxWeight = Math.max(1, ...weightChart.map((log) => log.weight || 0));
+
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>Goals & Weight</Text>
@@ -111,44 +216,148 @@ export default function GoalsScreen() {
 
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Macro Targets</Text>
+        <View style={styles.toggleRow}>
+          <Pressable
+            style={[
+              styles.toggleButton,
+              macroMode === "grams" && styles.toggleButtonActive,
+            ]}
+            onPress={() => setMacroMode("grams")}
+          >
+            <Text style={styles.toggleText}>Grams</Text>
+          </Pressable>
+          <Pressable
+            style={[
+              styles.toggleButton,
+              macroMode === "percent" && styles.toggleButtonActive,
+            ]}
+            onPress={() => setMacroMode("percent")}
+          >
+            <Text style={styles.toggleText}>Percent</Text>
+          </Pressable>
+        </View>
+        {macroMode === "grams" ? (
+          <View style={styles.autoFillRow}>
+            <Text style={styles.label}>Auto-fill remainder</Text>
+            <View style={styles.autoFillOptions}>
+              {["none", "protein", "carbs", "fats"].map((option) => (
+                <Pressable
+                  key={option}
+                  style={[
+                    styles.chip,
+                    autoFillMacro === option && styles.chipActive,
+                  ]}
+                  onPress={() => setAutoFillMacro(option)}
+                >
+                  <Text style={styles.chipText}>
+                    {option === "none" ? "None" : option}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        ) : null}
         <View style={styles.row}>
-          <TextInput
-            value={macroTarget.calories}
-            onChangeText={(value) =>
-              setMacroTarget((prev) => ({ ...prev, calories: value }))
-            }
-            placeholder="Calories"
-            keyboardType="numeric"
-            style={[styles.input, styles.halfInput]}
-          />
-          <TextInput
-            value={macroTarget.protein}
-            onChangeText={(value) =>
-              setMacroTarget((prev) => ({ ...prev, protein: value }))
-            }
-            placeholder="Protein (g)"
-            keyboardType="numeric"
-            style={[styles.input, styles.halfInput]}
-          />
+          <View style={styles.field}>
+            <Text style={styles.label}>Calories</Text>
+            <TextInput
+              value={macroTarget.calories}
+              onChangeText={(value) =>
+                setMacroTarget((prev) => ({ ...prev, calories: value }))
+              }
+              placeholder="Calories"
+              placeholderTextColor={colors.muted}
+              keyboardType="numeric"
+              style={[styles.input, styles.halfInput]}
+            />
+          </View>
+          <View style={styles.field}>
+            <Text style={styles.label}>
+              {macroMode === "percent" ? "Protein (%)" : "Protein"}
+            </Text>
+            <TextInput
+              value={macroTarget.protein}
+              onChangeText={(value) =>
+                setMacroTarget((prev) => ({ ...prev, protein: value }))
+              }
+              placeholder="Protein (g)"
+              placeholderTextColor={colors.muted}
+              keyboardType="numeric"
+              style={[styles.input, styles.halfInput]}
+            />
+          </View>
         </View>
         <View style={styles.row}>
+          <View style={styles.field}>
+            <Text style={styles.label}>
+              {macroMode === "percent" ? "Carbs (%)" : "Carbs"}
+            </Text>
+            <TextInput
+              value={macroTarget.carbs}
+              onChangeText={(value) =>
+                setMacroTarget((prev) => ({ ...prev, carbs: value }))
+              }
+              placeholder="Carbs (g)"
+              placeholderTextColor={colors.muted}
+              keyboardType="numeric"
+              style={[styles.input, styles.halfInput]}
+            />
+          </View>
+          <View style={styles.field}>
+            <Text style={styles.label}>
+              {macroMode === "percent" ? "Fats (%)" : "Fats"}
+            </Text>
+            <TextInput
+              value={macroTarget.fats}
+              onChangeText={(value) =>
+                setMacroTarget((prev) => ({ ...prev, fats: value }))
+              }
+              placeholder="Fats (g)"
+              placeholderTextColor={colors.muted}
+              keyboardType="numeric"
+              style={[styles.input, styles.halfInput]}
+            />
+          </View>
+        </View>
+        {macroMode === "percent" && Number(macroTarget.calories) > 0 ? (
+          <View style={styles.macroNote}>
+            <Text style={styles.muted}>
+              Estimated grams: P{" "}
+              {Math.round(
+                (Number(macroTarget.calories) *
+                  (Number(macroTarget.protein) || 0)) /
+                  100 /
+                  4
+              )}{" "}
+              g · C{" "}
+              {Math.round(
+                (Number(macroTarget.calories) *
+                  (Number(macroTarget.carbs) || 0)) /
+                  100 /
+                  4
+              )}{" "}
+              g · F{" "}
+              {Math.round(
+                (Number(macroTarget.calories) *
+                  (Number(macroTarget.fats) || 0)) /
+                  100 /
+                  9
+              )}{" "}
+              g
+            </Text>
+          </View>
+        ) : null}
+        <View style={styles.field}>
+          <Text style={styles.label}>Meals per day</Text>
           <TextInput
-            value={macroTarget.carbs}
+            value={macroTarget.meals_per_day}
             onChangeText={(value) =>
-              setMacroTarget((prev) => ({ ...prev, carbs: value }))
+              setMacroTarget((prev) => ({ ...prev, meals_per_day: value }))
             }
-            placeholder="Carbs (g)"
+            placeholder="e.g. 3"
+            placeholderTextColor={colors.muted}
             keyboardType="numeric"
-            style={[styles.input, styles.halfInput]}
-          />
-          <TextInput
-            value={macroTarget.fats}
-            onChangeText={(value) =>
-              setMacroTarget((prev) => ({ ...prev, fats: value }))
-            }
-            placeholder="Fats (g)"
-            keyboardType="numeric"
-            style={[styles.input, styles.halfInput]}
+            style={styles.input}
           />
         </View>
         <Pressable style={styles.primaryButton} onPress={saveTargets}>
@@ -157,25 +366,158 @@ export default function GoalsScreen() {
       </View>
 
       <View style={styles.card}>
+        <Text style={styles.cardTitle}>Calorie Estimator</Text>
+        <View style={styles.row}>
+          <View style={styles.field}>
+            <Text style={styles.label}>Age</Text>
+            <TextInput
+              value={profile.age}
+              onChangeText={(value) =>
+                setProfile((prev) => ({ ...prev, age: value }))
+              }
+              placeholder="Age"
+              placeholderTextColor={colors.muted}
+              keyboardType="numeric"
+              style={[styles.input, styles.halfInput]}
+            />
+          </View>
+          <View style={styles.field}>
+            <Text style={styles.label}>Height (cm)</Text>
+            <TextInput
+              value={profile.height_cm}
+              onChangeText={(value) =>
+                setProfile((prev) => ({ ...prev, height_cm: value }))
+              }
+              placeholder="Height (cm)"
+              placeholderTextColor={colors.muted}
+              keyboardType="numeric"
+              style={[styles.input, styles.halfInput]}
+            />
+          </View>
+        </View>
+        <View style={styles.row}>
+          <View style={styles.field}>
+            <Text style={styles.label}>Weight (kg)</Text>
+            <TextInput
+              value={profile.weight_kg}
+              onChangeText={(value) =>
+                setProfile((prev) => ({ ...prev, weight_kg: value }))
+              }
+              placeholder="Weight (kg)"
+              placeholderTextColor={colors.muted}
+              keyboardType="numeric"
+              style={[styles.input, styles.halfInput]}
+            />
+          </View>
+          <View style={styles.field}>
+            <Text style={styles.label}>Sex</Text>
+            <View style={styles.chipRow}>
+              {["male", "female", "unspecified"].map((option) => (
+                <Pressable
+                  key={option}
+                  style={[
+                    styles.chip,
+                    profile.sex === option && styles.chipActive,
+                  ]}
+                  onPress={() =>
+                    setProfile((prev) => ({ ...prev, sex: option }))
+                  }
+                >
+                  <Text style={styles.chipText}>{option}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>Activity level</Text>
+          <View style={styles.chipRow}>
+            {[
+              "sedentary",
+              "light",
+              "moderate",
+              "active",
+              "very_active",
+            ].map((option) => (
+              <Pressable
+                key={option}
+                style={[
+                  styles.chip,
+                  profile.activity_level === option && styles.chipActive,
+                ]}
+                onPress={() =>
+                  setProfile((prev) => ({ ...prev, activity_level: option }))
+                }
+              >
+                <Text style={styles.chipText}>{option.replace("_", " ")}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+        {estimatedCalories ? (
+          <Text style={styles.muted}>
+            Estimated maintenance: {estimatedCalories} kcal/day
+          </Text>
+        ) : null}
+        <View style={styles.row}>
+          <Pressable style={styles.secondaryButton} onPress={saveProfile}>
+            <Text style={styles.secondaryText}>Save Profile</Text>
+          </Pressable>
+          <Pressable style={styles.primaryButton} onPress={estimateCalories}>
+            <Text style={styles.primaryText}>Estimate Calories</Text>
+          </Pressable>
+        </View>
+      </View>
+
+      <View style={styles.card}>
         <Text style={styles.cardTitle}>Weight Tracking</Text>
         <View style={styles.row}>
-          <TextInput
-            value={weightInput}
-            onChangeText={setWeightInput}
-            placeholder="Weight"
-            keyboardType="numeric"
-            style={[styles.input, styles.halfInput]}
-          />
-          <TextInput
-            value={weightNotes}
-            onChangeText={setWeightNotes}
-            placeholder="Notes"
-            style={[styles.input, styles.halfInput]}
-          />
+          <View style={styles.field}>
+            <Text style={styles.label}>Weight</Text>
+            <TextInput
+              value={weightInput}
+              onChangeText={setWeightInput}
+              placeholder="Weight"
+              placeholderTextColor={colors.muted}
+              keyboardType="numeric"
+              style={[styles.input, styles.halfInput]}
+            />
+          </View>
+          <View style={styles.field}>
+            <Text style={styles.label}>Notes</Text>
+            <TextInput
+              value={weightNotes}
+              onChangeText={setWeightNotes}
+              placeholder="Notes"
+              placeholderTextColor={colors.muted}
+              style={[styles.input, styles.halfInput]}
+            />
+          </View>
         </View>
         <Pressable style={styles.primaryButton} onPress={addWeight}>
           <Text style={styles.primaryText}>Add Weight</Text>
         </Pressable>
+
+        {weightChart.length > 0 ? (
+          <View style={styles.weightChart}>
+            {weightChart.map((log) => (
+              <View key={log.id} style={styles.weightItem}>
+                <View style={styles.weightBarTrack}>
+                  <View
+                    style={[
+                      styles.weightBarFill,
+                      { width: `${(log.weight / maxWeight) * 100}%` },
+                    ]}
+                  />
+                </View>
+                <View style={styles.weightMeta}>
+                  <Text style={styles.weightLabel}>{log.log_date}</Text>
+                  <Text style={styles.weightValue}>{log.weight}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        ) : null}
 
         {weightLogs.length === 0 ? (
           <Text style={styles.muted}>No weight entries yet.</Text>
@@ -232,9 +574,53 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
     color: colors.ink,
   },
+  toggleRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  toggleButton: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: "center",
+    backgroundColor: colors.surface,
+  },
+  toggleButtonActive: {
+    backgroundColor: colors.softAccent,
+    borderColor: colors.accent,
+  },
+  toggleText: {
+    fontFamily: fonts.medium,
+    color: colors.ink,
+  },
+  autoFillRow: {
+    gap: 8,
+  },
+  autoFillOptions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
   row: {
     flexDirection: "row",
     gap: 10,
+    alignItems: "flex-start",
+  },
+  field: {
+    flex: 1,
+    gap: 6,
+  },
+  label: {
+    fontSize: 12,
+    fontFamily: fonts.medium,
+    color: colors.muted,
+  },
+  macroNote: {
+    backgroundColor: colors.softAccent,
+    padding: 10,
+    borderRadius: 10,
   },
   input: {
     borderWidth: 1,
@@ -254,14 +640,54 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 10,
     alignItems: "center",
+    shadowColor: colors.accent,
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 4,
   },
   primaryText: {
     color: "#fff",
     fontFamily: fonts.medium,
   },
+  secondaryButton: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: "center",
+    flex: 1,
+  },
+  secondaryText: {
+    color: colors.ink,
+    fontFamily: fonts.medium,
+  },
   muted: {
     color: colors.muted,
     fontFamily: fonts.regular,
+  },
+  chipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  chip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  chipActive: {
+    backgroundColor: colors.softAccent,
+    borderColor: colors.accent,
+  },
+  chipText: {
+    fontFamily: fonts.medium,
+    color: colors.ink,
+    textTransform: "capitalize",
   },
   logItem: {
     flexDirection: "row",
@@ -299,5 +725,35 @@ const styles = StyleSheet.create({
   deleteText: {
     color: colors.danger,
     fontFamily: fonts.medium,
+  },
+  weightChart: {
+    gap: 10,
+  },
+  weightItem: {
+    gap: 6,
+  },
+  weightBarTrack: {
+    height: 8,
+    backgroundColor: colors.border,
+    borderRadius: 999,
+    overflow: "hidden",
+  },
+  weightBarFill: {
+    height: "100%",
+    backgroundColor: colors.accent,
+  },
+  weightMeta: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  weightLabel: {
+    fontFamily: fonts.regular,
+    color: colors.muted,
+    fontSize: 12,
+  },
+  weightValue: {
+    fontFamily: fonts.medium,
+    color: colors.ink,
+    fontSize: 12,
   },
 });

@@ -9,6 +9,7 @@ from sqlmodel import Field, SQLModel
 class DailyLogCreate(SQLModel):
     food_name: str
     source: str = "Manual"
+    meal_slot: int = 1
     calories: int
     protein: float
     carbs: float
@@ -21,6 +22,7 @@ class DailyLogRead(SQLModel):
     timestamp: datetime
     food_name: str
     source: str
+    meal_slot: int
     calories: int
     protein: float
     carbs: float
@@ -74,6 +76,7 @@ class MacroTargetUpsert(SQLModel):
     protein: float
     carbs: float
     fats: float
+    meals_per_day: int = 3
 
 
 class MacroTargetRead(SQLModel):
@@ -82,6 +85,7 @@ class MacroTargetRead(SQLModel):
     protein: float
     carbs: float
     fats: float
+    meals_per_day: int
     updated_at: datetime
 
 
@@ -96,3 +100,21 @@ class WeightLogRead(SQLModel):
     log_date: date
     weight: float
     notes: Optional[str] = None
+
+
+class UserProfileUpsert(SQLModel):
+    age: int
+    height_cm: float
+    weight_kg: float
+    sex: str
+    activity_level: str
+
+
+class UserProfileRead(SQLModel):
+    id: int
+    age: int
+    height_cm: float
+    weight_kg: float
+    sex: str
+    activity_level: str
+    updated_at: datetime

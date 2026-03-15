@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from typing import List
 
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
@@ -9,7 +9,7 @@ from sqlmodel import Session, select
 from sqlalchemy import func
 
 from .db import get_session, init_db
-from .models import CustomFood, DailyLog, MacroTarget, WeightLog
+from .models import CustomFood, DailyLog, MacroTarget, UserProfile, WeightLog
 from .schemas import (
     BarcodeResult,
     BulkLogRequest,
@@ -20,6 +20,8 @@ from .schemas import (
     MacroTargetRead,
     MacroTargetUpsert,
     RecentMeal,
+    UserProfileRead,
+    UserProfileUpsert,
     WeightLogCreate,
     WeightLogRead,
 )
@@ -58,6 +60,7 @@ def log_meal(payload: DailyLogCreate, session: Session = Depends(get_session)) -
         timestamp=timestamp,
         food_name=payload.food_name,
         source=payload.source,
+        meal_slot=payload.meal_slot or 1,
         calories=payload.calories,
         protein=payload.protein,
         carbs=payload.carbs,
@@ -81,6 +84,7 @@ def log_meals_bulk(payload: BulkLogRequest, session: Session = Depends(get_sessi
             timestamp=timestamp,
             food_name=payload.meal.food_name,
             source=payload.meal.source,
+            meal_slot=payload.meal.meal_slot or 1,
             calories=payload.meal.calories,
             protein=payload.meal.protein,
             carbs=payload.meal.carbs,
@@ -117,6 +121,7 @@ def upsert_macro_target(
     target.protein = payload.protein
     target.carbs = payload.carbs
     target.fats = payload.fats
+    target.meals_per_day = payload.meals_per_day
     target.updated_at = datetime.utcnow()
     session.commit()
     session.refresh(target)
@@ -157,6 +162,50 @@ def daily_summary(target_date: date | None = None, session: Session = Depends(ge
         carbs=float(carbs),
         fats=float(fats),
     )
+
+
+@app.get("/daily-summaries", response_model=List[DailySummary])
+def daily_summaries(
+    start_date: date, end_date: date, session: Session = Depends(get_session)
+) -> List[DailySummary]:
+    if end_date < start_date:
+        raise HTTPException(status_code=400, detail="Invalid date range.")
+    start = datetime.combine(start_date, time.min)
+    end = datetime.combine(end_date, time.max)
+    statement = (
+        select(DailyLog)
+        .where(DailyLog.timestamp >= start)
+        .where(DailyLog.timestamp <= end)
+    )
+    logs = session.exec(statement).all()
+    summary_map: dict[str, dict[str, float]] = {}
+    for log in logs:
+        key = log.timestamp.date().isoformat()
+        if key not in summary_map:
+            summary_map[key] = {"calories": 0, "protein": 0, "carbs": 0, "fats": 0}
+        summary_map[key]["calories"] += log.calories
+        summary_map[key]["protein"] += log.protein
+        summary_map[key]["carbs"] += log.carbs
+        summary_map[key]["fats"] += log.fats
+    # Fill in missing dates with zeros
+    results: List[DailySummary] = []
+    cursor = start_date
+    while cursor <= end_date:
+        key = cursor.isoformat()
+        day = summary_map.get(
+            key, {"calories": 0, "protein": 0, "carbs": 0, "fats": 0}
+        )
+        results.append(
+            DailySummary(
+                date=key,
+                calories=int(day["calories"]),
+                protein=float(day["protein"]),
+                carbs=float(day["carbs"]),
+                fats=float(day["fats"]),
+            )
+        )
+        cursor = cursor + timedelta(days=1)
+    return results
 
 
 @app.get("/daily-logs", response_model=List[DailyLogRead])
@@ -204,6 +253,36 @@ def delete_weight_log(log_id: int, session: Session = Depends(get_session)) -> d
     return {"status": "deleted", "id": log_id}
 
 
+@app.get("/profile", response_model=UserProfileRead)
+def get_profile(session: Session = Depends(get_session)) -> UserProfile:
+    profile = session.exec(select(UserProfile).order_by(UserProfile.id)).first()
+    if not profile:
+        profile = UserProfile()
+        session.add(profile)
+        session.commit()
+        session.refresh(profile)
+    return profile
+
+
+@app.put("/profile", response_model=UserProfileRead)
+def upsert_profile(
+    payload: UserProfileUpsert, session: Session = Depends(get_session)
+) -> UserProfile:
+    profile = session.exec(select(UserProfile).order_by(UserProfile.id)).first()
+    if not profile:
+        profile = UserProfile()
+        session.add(profile)
+    profile.age = payload.age
+    profile.height_cm = payload.height_cm
+    profile.weight_kg = payload.weight_kg
+    profile.sex = payload.sex
+    profile.activity_level = payload.activity_level
+    profile.updated_at = datetime.utcnow()
+    session.commit()
+    session.refresh(profile)
+    return profile
+
+
 @app.get("/recents", response_model=List[RecentMeal])
 def recents(session: Session = Depends(get_session)) -> List[RecentMeal]:
     statement = select(DailyLog).order_by(DailyLog.timestamp.desc())
@@ -240,6 +319,16 @@ def create_custom_food(food: CustomFood, session: Session = Depends(get_session)
     session.commit()
     session.refresh(food)
     return food
+
+
+@app.delete("/custom-foods/{food_id}")
+def delete_custom_food(food_id: int, session: Session = Depends(get_session)) -> dict:
+    food = session.get(CustomFood, food_id)
+    if not food:
+        raise HTTPException(status_code=404, detail="Custom food not found.")
+    session.delete(food)
+    session.commit()
+    return {"status": "deleted", "id": food_id}
 
 
 @app.post("/analyze-photo", response_model=FoodEstimate)

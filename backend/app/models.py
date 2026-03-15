@@ -20,6 +20,7 @@ class DailyLog(SQLModel, table=True):
     timestamp: datetime = Field(default_factory=datetime.utcnow, index=True)
     food_name: str = Field(index=True)
     source: str = Field(default="Manual", index=True)
+    meal_slot: int = Field(default=1, index=True)
     calories: int
     protein: float
     carbs: float
@@ -32,6 +33,7 @@ class MacroTarget(SQLModel, table=True):
     protein: float = 0
     carbs: float = 0
     fats: float = 0
+    meals_per_day: int = 3
     updated_at: datetime = Field(default_factory=datetime.utcnow, index=True)
 
 
@@ -40,3 +42,13 @@ class WeightLog(SQLModel, table=True):
     log_date: date = Field(default_factory=date.today, index=True)
     weight: float
     notes: Optional[str] = None
+
+
+class UserProfile(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    age: int = 0
+    height_cm: float = 0
+    weight_kg: float = 0
+    sex: str = "unspecified"
+    activity_level: str = "moderate"
+    updated_at: datetime = Field(default_factory=datetime.utcnow, index=True)

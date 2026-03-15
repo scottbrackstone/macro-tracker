@@ -9,7 +9,7 @@ import {
   View,
 } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect, useRoute } from "@react-navigation/native";
 
 import { API_BASE_URL, fetchJson } from "../api/client";
 import { colors, fonts } from "../theme";
@@ -20,6 +20,7 @@ const MODES = {
 };
 
 export default function ScannerScreen() {
+  const route = useRoute();
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef(null);
   const [mode, setMode] = useState(MODES.AI);
@@ -30,12 +31,15 @@ export default function ScannerScreen() {
   const [lastBarcode, setLastBarcode] = useState("");
   const [scanBanner, setScanBanner] = useState("");
   const [recents, setRecents] = useState([]);
+  const [mealSlot, setMealSlot] = useState(1);
+  const [mealsPerDay, setMealsPerDay] = useState(3);
   const [manual, setManual] = useState({
     food_name: "",
     calories: "",
     protein: "",
     carbs: "",
     fats: "",
+    grams: "",
   });
   const [planDays, setPlanDays] = useState([]);
 
@@ -59,13 +63,28 @@ export default function ScannerScreen() {
     protein: data.protein != null ? String(data.protein) : "",
     carbs: data.carbs != null ? String(data.carbs) : "",
     fats: data.fats != null ? String(data.fats) : "",
+    grams: "",
     multiplier: "1",
   });
 
   const applyResult = (data) => {
-    setResult(data);
+    setResult({ ...data, meal_slot: mealSlot });
     setDraft(buildDraft(data));
   };
+
+  useEffect(() => {
+    if (route.params?.mealSlot) {
+      setMealSlot(route.params.mealSlot);
+    }
+    if (route.params?.prefill) {
+      applyResult({ ...route.params.prefill, source: "Library" });
+      setStatus("Review and confirm.");
+    }
+  }, [route.params]);
+
+  useEffect(() => {
+    setResult((prev) => (prev ? { ...prev, meal_slot: mealSlot } : prev));
+  }, [mealSlot]);
 
   const handleSnap = async () => {
     if (!cameraRef.current || busy) return;
@@ -129,7 +148,8 @@ export default function ScannerScreen() {
     setBusy(true);
     setStatus("Saving...");
     try {
-      const factor = Number(draft.multiplier) || 1;
+      const gramsValue = Number(draft.grams);
+      const factor = gramsValue > 0 ? gramsValue / 100 : Number(draft.multiplier) || 1;
       await fetchJson("/log-meal", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -140,6 +160,7 @@ export default function ScannerScreen() {
           protein: Number(draft.protein) * factor || 0,
           carbs: Number(draft.carbs) * factor || 0,
           fats: Number(draft.fats) * factor || 0,
+          meal_slot: result.meal_slot || 1,
         }),
       });
       if (planDays.length > 0) {
@@ -157,6 +178,7 @@ export default function ScannerScreen() {
               protein: Number(draft.protein) * factor || 0,
               carbs: Number(draft.carbs) * factor || 0,
               fats: Number(draft.fats) * factor || 0,
+              meal_slot: result.meal_slot || 1,
             },
             dates,
           }),
@@ -179,8 +201,12 @@ export default function ScannerScreen() {
 
   const loadRecents = useCallback(async () => {
     try {
-      const data = await fetchJson("/recents");
+      const [data, target] = await Promise.all([
+        fetchJson("/recents"),
+        fetchJson("/macro-target"),
+      ]);
       setRecents(data);
+      setMealsPerDay(Math.max(1, target.meals_per_day || 3));
     } catch (err) {
       // Keep quiet; recents aren't critical for scanning flow.
     }
@@ -208,16 +234,19 @@ export default function ScannerScreen() {
     setBusy(true);
     setStatus("Saving...");
     try {
+      const gramsValue = Number(manual.grams);
+      const factor = gramsValue > 0 ? gramsValue / 100 : 1;
       await fetchJson("/log-meal", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           food_name: manual.food_name.trim(),
           source: "Manual",
-          calories: Number(manual.calories) || 0,
-          protein: Number(manual.protein) || 0,
-          carbs: Number(manual.carbs) || 0,
-          fats: Number(manual.fats) || 0,
+          calories: Math.round((Number(manual.calories) || 0) * factor),
+          protein: Number(manual.protein) * factor || 0,
+          carbs: Number(manual.carbs) * factor || 0,
+          fats: Number(manual.fats) * factor || 0,
+          meal_slot: mealSlot,
         }),
       });
       if (planDays.length > 0) {
@@ -231,10 +260,11 @@ export default function ScannerScreen() {
             meal: {
               food_name: manual.food_name.trim(),
               source: "Planned",
-              calories: Number(manual.calories) || 0,
-              protein: Number(manual.protein) || 0,
-              carbs: Number(manual.carbs) || 0,
-              fats: Number(manual.fats) || 0,
+              calories: Math.round((Number(manual.calories) || 0) * factor),
+              protein: Number(manual.protein) * factor || 0,
+              carbs: Number(manual.carbs) * factor || 0,
+              fats: Number(manual.fats) * factor || 0,
+              meal_slot: mealSlot,
             },
             dates,
           }),
@@ -247,6 +277,7 @@ export default function ScannerScreen() {
         protein: "",
         carbs: "",
         fats: "",
+        grams: "",
       });
       setPlanDays([]);
       loadRecents();
@@ -310,6 +341,21 @@ export default function ScannerScreen() {
         </Pressable>
       </View>
 
+      <View style={styles.mealSelector}>
+        {Array.from({ length: mealsPerDay }, (_, idx) => idx + 1).map((slot) => (
+          <Pressable
+            key={slot}
+            style={[
+              styles.mealChip,
+              mealSlot === slot && styles.mealChipActive,
+            ]}
+            onPress={() => setMealSlot(slot)}
+          >
+            <Text style={styles.mealChipText}>Meal {slot}</Text>
+          </Pressable>
+        ))}
+      </View>
+
       <CameraView
         ref={cameraRef}
         style={styles.camera}
@@ -353,63 +399,102 @@ export default function ScannerScreen() {
           <Text style={styles.cardMeta}>Edit before saving</Text>
           {draft ? (
             <View style={styles.manualGroup}>
-              <TextInput
-                value={draft.food_name}
-                onChangeText={(value) =>
-                  setDraft((prev) => ({ ...prev, food_name: value }))
-                }
-                placeholder="Food name"
-                style={styles.input}
-              />
-              <View style={styles.row}>
+              <View style={styles.field}>
+                <Text style={styles.label}>Food name</Text>
                 <TextInput
-                  value={draft.calories}
+                  value={draft.food_name}
                   onChangeText={(value) =>
-                    setDraft((prev) => ({ ...prev, calories: value }))
+                    setDraft((prev) => ({ ...prev, food_name: value }))
                   }
-                  placeholder="Calories"
-                  keyboardType="numeric"
-                  style={[styles.input, styles.halfInput]}
-                />
-                <TextInput
-                  value={draft.protein}
-                  onChangeText={(value) =>
-                    setDraft((prev) => ({ ...prev, protein: value }))
-                  }
-                  placeholder="Protein (g)"
-                  keyboardType="numeric"
-                  style={[styles.input, styles.halfInput]}
+                  placeholder="Food name"
+                  placeholderTextColor={colors.muted}
+                  style={styles.input}
                 />
               </View>
               <View style={styles.row}>
-                <TextInput
-                  value={draft.carbs}
-                  onChangeText={(value) =>
-                    setDraft((prev) => ({ ...prev, carbs: value }))
-                  }
-                  placeholder="Carbs (g)"
-                  keyboardType="numeric"
-                  style={[styles.input, styles.halfInput]}
-                />
-                <TextInput
-                  value={draft.fats}
-                  onChangeText={(value) =>
-                    setDraft((prev) => ({ ...prev, fats: value }))
-                  }
-                  placeholder="Fats (g)"
-                  keyboardType="numeric"
-                  style={[styles.input, styles.halfInput]}
-                />
+                <View style={styles.field}>
+                  <Text style={styles.label}>Calories</Text>
+                  <TextInput
+                    value={draft.calories}
+                    onChangeText={(value) =>
+                      setDraft((prev) => ({ ...prev, calories: value }))
+                    }
+                    placeholder="Calories"
+                    placeholderTextColor={colors.muted}
+                    keyboardType="numeric"
+                    style={[styles.input, styles.halfInput]}
+                  />
+                </View>
+                <View style={styles.field}>
+                  <Text style={styles.label}>Protein (g)</Text>
+                  <TextInput
+                    value={draft.protein}
+                    onChangeText={(value) =>
+                      setDraft((prev) => ({ ...prev, protein: value }))
+                    }
+                    placeholder="Protein (g)"
+                    placeholderTextColor={colors.muted}
+                    keyboardType="numeric"
+                    style={[styles.input, styles.halfInput]}
+                  />
+                </View>
               </View>
-              <TextInput
-                value={draft.multiplier}
-                onChangeText={(value) =>
-                  setDraft((prev) => ({ ...prev, multiplier: value }))
-                }
-                placeholder="Portion multiplier (e.g. 0.5, 1, 1.5)"
-                keyboardType="numeric"
-                style={styles.input}
-              />
+              <View style={styles.row}>
+                <View style={styles.field}>
+                  <Text style={styles.label}>Carbs (g)</Text>
+                  <TextInput
+                    value={draft.carbs}
+                    onChangeText={(value) =>
+                      setDraft((prev) => ({ ...prev, carbs: value }))
+                    }
+                    placeholder="Carbs (g)"
+                    placeholderTextColor={colors.muted}
+                    keyboardType="numeric"
+                    style={[styles.input, styles.halfInput]}
+                  />
+                </View>
+                <View style={styles.field}>
+                  <Text style={styles.label}>Fats (g)</Text>
+                  <TextInput
+                    value={draft.fats}
+                    onChangeText={(value) =>
+                      setDraft((prev) => ({ ...prev, fats: value }))
+                    }
+                    placeholder="Fats (g)"
+                    placeholderTextColor={colors.muted}
+                    keyboardType="numeric"
+                    style={[styles.input, styles.halfInput]}
+                  />
+                </View>
+              </View>
+              <View style={styles.row}>
+                <View style={styles.field}>
+                  <Text style={styles.label}>Grams (per 100g)</Text>
+                  <TextInput
+                    value={draft.grams}
+                    onChangeText={(value) =>
+                      setDraft((prev) => ({ ...prev, grams: value }))
+                    }
+                    placeholder="e.g. 180"
+                    placeholderTextColor={colors.muted}
+                    keyboardType="numeric"
+                    style={[styles.input, styles.halfInput]}
+                  />
+                </View>
+                <View style={styles.field}>
+                  <Text style={styles.label}>Multiplier</Text>
+                  <TextInput
+                    value={draft.multiplier}
+                    onChangeText={(value) =>
+                      setDraft((prev) => ({ ...prev, multiplier: value }))
+                    }
+                    placeholder="e.g. 0.5, 1, 1.5"
+                    placeholderTextColor={colors.muted}
+                    keyboardType="numeric"
+                    style={[styles.input, styles.halfInput]}
+                  />
+                </View>
+              </View>
               <Text style={styles.sectionTitle}>Plan next 7 days</Text>
               <View style={styles.planRow}>
                 {planOffsets.map((offset) => {
@@ -491,42 +576,73 @@ export default function ScannerScreen() {
 
       <Text style={styles.sectionTitle}>Manual Entry</Text>
       <View style={styles.manualGroup}>
-        <TextInput
-          value={manual.food_name}
-          onChangeText={(value) => handleManualChange("food_name", value)}
-          placeholder="Food name"
-          style={styles.input}
-        />
-        <View style={styles.row}>
+        <View style={styles.field}>
+          <Text style={styles.label}>Food name</Text>
           <TextInput
-            value={manual.calories}
-            onChangeText={(value) => handleManualChange("calories", value)}
-            placeholder="Calories"
-            keyboardType="numeric"
-            style={[styles.input, styles.halfInput]}
-          />
-          <TextInput
-            value={manual.protein}
-            onChangeText={(value) => handleManualChange("protein", value)}
-            placeholder="Protein (g)"
-            keyboardType="numeric"
-            style={[styles.input, styles.halfInput]}
+            value={manual.food_name}
+            onChangeText={(value) => handleManualChange("food_name", value)}
+            placeholder="Food name"
+            placeholderTextColor={colors.muted}
+            style={styles.input}
           />
         </View>
         <View style={styles.row}>
+          <View style={styles.field}>
+            <Text style={styles.label}>Calories</Text>
+            <TextInput
+              value={manual.calories}
+              onChangeText={(value) => handleManualChange("calories", value)}
+              placeholder="Calories"
+              placeholderTextColor={colors.muted}
+              keyboardType="numeric"
+              style={[styles.input, styles.halfInput]}
+            />
+          </View>
+          <View style={styles.field}>
+            <Text style={styles.label}>Protein (g)</Text>
+            <TextInput
+              value={manual.protein}
+              onChangeText={(value) => handleManualChange("protein", value)}
+              placeholder="Protein (g)"
+              placeholderTextColor={colors.muted}
+              keyboardType="numeric"
+              style={[styles.input, styles.halfInput]}
+            />
+          </View>
+        </View>
+        <View style={styles.row}>
+          <View style={styles.field}>
+            <Text style={styles.label}>Carbs (g)</Text>
+            <TextInput
+              value={manual.carbs}
+              onChangeText={(value) => handleManualChange("carbs", value)}
+              placeholder="Carbs (g)"
+              placeholderTextColor={colors.muted}
+              keyboardType="numeric"
+              style={[styles.input, styles.halfInput]}
+            />
+          </View>
+          <View style={styles.field}>
+            <Text style={styles.label}>Fats (g)</Text>
+            <TextInput
+              value={manual.fats}
+              onChangeText={(value) => handleManualChange("fats", value)}
+              placeholder="Fats (g)"
+              placeholderTextColor={colors.muted}
+              keyboardType="numeric"
+              style={[styles.input, styles.halfInput]}
+            />
+          </View>
+        </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>Grams (per 100g)</Text>
           <TextInput
-            value={manual.carbs}
-            onChangeText={(value) => handleManualChange("carbs", value)}
-            placeholder="Carbs (g)"
+            value={manual.grams}
+            onChangeText={(value) => handleManualChange("grams", value)}
+            placeholder="e.g. 180"
+            placeholderTextColor={colors.muted}
             keyboardType="numeric"
-            style={[styles.input, styles.halfInput]}
-          />
-          <TextInput
-            value={manual.fats}
-            onChangeText={(value) => handleManualChange("fats", value)}
-            placeholder="Fats (g)"
-            keyboardType="numeric"
-            style={[styles.input, styles.halfInput]}
+            style={styles.input}
           />
         </View>
         <Pressable style={styles.button} onPress={logManual} disabled={busy}>
@@ -589,6 +705,11 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 10,
     alignItems: "center",
+    shadowColor: colors.accent,
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 4,
   },
   buttonText: {
     color: "#fff",
@@ -627,6 +748,27 @@ const styles = StyleSheet.create({
   modeToggle: {
     flexDirection: "row",
     gap: 10,
+  },
+  mealSelector: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  mealChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  mealChipActive: {
+    backgroundColor: colors.softAccent,
+    borderColor: colors.accent,
+  },
+  mealChipText: {
+    fontFamily: fonts.medium,
+    color: colors.ink,
   },
   toggleButton: {
     flex: 1,
@@ -673,6 +815,15 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
     gap: 10,
+  },
+  field: {
+    flex: 1,
+    gap: 6,
+  },
+  label: {
+    fontSize: 12,
+    fontFamily: fonts.medium,
+    color: colors.muted,
   },
   input: {
     borderWidth: 1,

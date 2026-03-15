@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
 
 import { API_BASE_URL, fetchJson, ping } from "../api/client";
 import ProgressBar from "../components/ProgressBar";
@@ -21,10 +21,13 @@ export default function DashboardScreen() {
   });
   const [recents, setRecents] = useState([]);
   const [dailyLogs, setDailyLogs] = useState([]);
+  const [weeklySummaries, setWeeklySummaries] = useState([]);
+  const [streak, setStreak] = useState(0);
   const [error, setError] = useState("");
   const [apiStatus, setApiStatus] = useState("checking");
   const [apiMessage, setApiMessage] = useState("");
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const navigation = useNavigation();
 
   const calendarDays = [-1, 0, 1, 2, 3, 4, 5, 6, 7];
   const formatDateParam = (dateValue) =>
@@ -40,6 +43,12 @@ export default function DashboardScreen() {
     return next;
   };
 
+  const formatDateParam = (dateValue) =>
+    dateValue.toISOString().slice(0, 10);
+
+  const formatShortDate = (dateValue) =>
+    dateValue.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+
   const loadData = useCallback(async () => {
     try {
       await ping();
@@ -54,17 +63,27 @@ export default function DashboardScreen() {
 
     try {
       const dateParam = formatDateParam(selectedDate);
-      const [summaryResponse, recentsResponse, logsResponse, targetsResponse] =
+      const today = new Date();
+      const weeklyStart = new Date(today);
+      weeklyStart.setDate(today.getDate() - 6);
+      const weeklyParams = `start_date=${formatDateParam(
+        weeklyStart
+      )}&end_date=${formatDateParam(today)}`;
+      const [summaryResponse, recentsResponse, logsResponse, targetsResponse, weeklyResponse] =
         await Promise.all([
         fetchJson(`/daily-summary?target_date=${dateParam}`),
         fetchJson("/recents"),
         fetchJson(`/daily-logs?target_date=${dateParam}`),
         fetchJson("/macro-target"),
+        fetchJson(`/daily-summaries?${weeklyParams}`),
       ]);
       setSummary(summaryResponse);
       setRecents(recentsResponse);
       setDailyLogs(logsResponse);
       setTargets(targetsResponse);
+      setWeeklySummaries(weeklyResponse);
+      const streakCount = computeStreak(weeklyResponse);
+      setStreak(streakCount);
       setError("");
     } catch (err) {
       setError(err.message);
@@ -89,6 +108,46 @@ export default function DashboardScreen() {
       setError(err.message);
     }
   };
+
+  const mealsPerDay = Math.max(1, targets.meals_per_day || 3);
+  const mealSlots = useMemo(
+    () => Array.from({ length: mealsPerDay }, (_, idx) => idx + 1),
+    [mealsPerDay]
+  );
+  const groupedMeals = useMemo(() => {
+    const groups = {};
+    mealSlots.forEach((slot) => {
+      groups[slot] = [];
+    });
+    dailyLogs.forEach((log) => {
+      const slot = log.meal_slot || 1;
+      if (!groups[slot]) {
+        groups[slot] = [];
+      }
+      groups[slot].push(log);
+    });
+    return groups;
+  }, [dailyLogs, mealSlots]);
+
+  const maxWeeklyCalories = Math.max(
+    1,
+    ...weeklySummaries.map((day) => day.calories || 0)
+  );
+
+  function computeStreak(days) {
+    let count = 0;
+    const sorted = [...days].sort((a, b) => (a.date > b.date ? -1 : 1));
+    for (const day of sorted) {
+      const active =
+        (day.calories || 0) > 0 ||
+        (day.protein || 0) > 0 ||
+        (day.carbs || 0) > 0 ||
+        (day.fats || 0) > 0;
+      if (!active) break;
+      count += 1;
+    }
+    return count;
+  }
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -145,29 +204,67 @@ export default function DashboardScreen() {
         unit="g"
       />
 
-      <Text style={styles.sectionTitle}>Selected Day Meals</Text>
-      {dailyLogs.length === 0 ? (
-        <Text style={styles.muted}>No meals logged today.</Text>
-      ) : (
-        dailyLogs.map((meal) => (
-          <View key={meal.id} style={styles.logItem}>
-            <View style={styles.logInfo}>
-              <Text style={styles.recentName}>{meal.food_name}</Text>
-              <Text style={styles.recentMeta}>
-                {meal.calories} kcal · P {meal.protein}g · C {meal.carbs}g · F{" "}
-                {meal.fats}g
-              </Text>
-              <Text style={styles.logSource}>{meal.source}</Text>
-            </View>
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>Meals</Text>
+        <Text style={styles.streakBadge}>Streak: {streak} days</Text>
+      </View>
+      {mealSlots.map((slot) => (
+        <View key={slot} style={styles.mealBlock}>
+          <View style={styles.mealHeader}>
+            <Text style={styles.mealTitle}>Meal {slot}</Text>
             <Pressable
-              style={styles.deleteButton}
-              onPress={() => handleDelete(meal.id)}
+              style={styles.addButton}
+              onPress={() => navigation.navigate("Scanner", { mealSlot: slot })}
             >
-              <Text style={styles.deleteText}>Delete</Text>
+              <Text style={styles.addButtonText}>+ Add</Text>
             </Pressable>
           </View>
-        ))
-      )}
+          {groupedMeals[slot] && groupedMeals[slot].length > 0 ? (
+            groupedMeals[slot].map((meal) => (
+              <View key={meal.id} style={styles.logItem}>
+                <View style={styles.logInfo}>
+                  <Text style={styles.recentName}>{meal.food_name}</Text>
+                  <Text style={styles.recentMeta}>
+                    {meal.calories} kcal · P {meal.protein}g · C {meal.carbs}g · F{" "}
+                    {meal.fats}g
+                  </Text>
+                  <Text style={styles.logSource}>{meal.source}</Text>
+                </View>
+                <Pressable
+                  style={styles.deleteButton}
+                  onPress={() => handleDelete(meal.id)}
+                >
+                  <Text style={styles.deleteText}>Delete</Text>
+                </Pressable>
+              </View>
+            ))
+          ) : (
+            <Text style={styles.muted}>No items yet.</Text>
+          )}
+        </View>
+      ))}
+
+      <Text style={styles.sectionTitle}>Weekly Calories</Text>
+      <View style={styles.weeklyChart}>
+        {weeklySummaries.map((day) => (
+          <View key={day.date} style={styles.weeklyItem}>
+            <View style={styles.weeklyBarTrack}>
+              <View
+                style={[
+                  styles.weeklyBarFill,
+                  { width: `${(day.calories / maxWeeklyCalories) * 100}%` },
+                ]}
+              />
+            </View>
+            <View style={styles.weeklyMeta}>
+              <Text style={styles.weeklyLabel}>
+                {formatShortDate(new Date(day.date))}
+              </Text>
+              <Text style={styles.weeklyValue}>{day.calories} kcal</Text>
+            </View>
+          </View>
+        ))}
+      </View>
 
       <Text style={styles.sectionTitle}>Recent Meals</Text>
       {recents.length === 0 ? (
@@ -210,6 +307,54 @@ const styles = StyleSheet.create({
     marginTop: 16,
     marginBottom: 8,
     color: colors.ink,
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 16,
+  },
+  streakBadge: {
+    backgroundColor: colors.softAccent,
+    color: colors.accent,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    fontFamily: fonts.medium,
+    fontSize: 12,
+  },
+  mealBlock: {
+    backgroundColor: colors.surface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 12,
+    marginBottom: 12,
+  },
+  mealHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  mealTitle: {
+    fontFamily: fonts.bold,
+    color: colors.ink,
+  },
+  addButton: {
+    backgroundColor: colors.accent,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    shadowColor: colors.accent,
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+  },
+  addButtonText: {
+    color: "#fff",
+    fontFamily: fonts.medium,
   },
   calendarRow: {
     flexDirection: "row",
@@ -302,5 +447,36 @@ const styles = StyleSheet.create({
     color: colors.danger,
     marginBottom: 8,
     fontFamily: fonts.regular,
+  },
+  weeklyChart: {
+    gap: 10,
+    marginBottom: 16,
+  },
+  weeklyItem: {
+    gap: 6,
+  },
+  weeklyBarTrack: {
+    height: 8,
+    backgroundColor: colors.border,
+    borderRadius: 999,
+    overflow: "hidden",
+  },
+  weeklyBarFill: {
+    height: "100%",
+    backgroundColor: colors.accent,
+  },
+  weeklyMeta: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  weeklyLabel: {
+    fontFamily: fonts.regular,
+    color: colors.muted,
+    fontSize: 12,
+  },
+  weeklyValue: {
+    fontFamily: fonts.medium,
+    color: colors.ink,
+    fontSize: 12,
   },
 });
