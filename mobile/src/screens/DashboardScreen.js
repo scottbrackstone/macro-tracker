@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 
 import { API_BASE_URL, fetchJson, ping } from "../api/client";
@@ -27,9 +34,20 @@ export default function DashboardScreen() {
   const [apiStatus, setApiStatus] = useState("checking");
   const [apiMessage, setApiMessage] = useState("");
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [viewMode, setViewMode] = useState("meal");
+  const [quickAdd, setQuickAdd] = useState({
+    food_name: "",
+    calories: "",
+    protein: "",
+    carbs: "",
+    fats: "",
+    meal_slot: 1,
+  });
+  const [quickAddBusy, setQuickAddBusy] = useState(false);
   const navigation = useNavigation();
 
   const calendarDays = [-1, 0, 1, 2, 3, 4, 5, 6, 7];
+  const mealLabels = ["Breakfast", "Lunch", "Dinner", "Snack"];
   const formatDateParam = (dateValue) =>
     dateValue.toISOString().slice(0, 10);
   const formatDayLabel = (dateValue) =>
@@ -45,6 +63,22 @@ export default function DashboardScreen() {
 
   const formatShortDate = (dateValue) =>
     dateValue.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const formatTime = (value) =>
+    new Date(value).toLocaleTimeString(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  const getMealLabel = (slot) =>
+    mealLabels[slot - 1] ? mealLabels[slot - 1] : `Meal ${slot}`;
+  const buildTimestamp = (dateValue) => {
+    const today = new Date();
+    const sameDay =
+      dateValue.toDateString() === today.toDateString();
+    if (sameDay) return new Date().toISOString();
+    const local = new Date(dateValue);
+    local.setHours(12, 0, 0, 0);
+    return local.toISOString();
+  };
 
   const loadData = useCallback(async () => {
     try {
@@ -125,6 +159,62 @@ export default function DashboardScreen() {
     });
     return groups;
   }, [dailyLogs, mealSlots]);
+
+  const timelineLogs = useMemo(
+    () =>
+      [...dailyLogs].sort(
+        (a, b) => new Date(a.timestamp) - new Date(b.timestamp)
+      ),
+    [dailyLogs]
+  );
+
+  useEffect(() => {
+    if (!mealSlots.includes(quickAdd.meal_slot)) {
+      setQuickAdd((prev) => ({ ...prev, meal_slot: mealSlots[0] || 1 }));
+    }
+  }, [mealSlots, quickAdd.meal_slot]);
+
+  const handleQuickAdd = async () => {
+    if (quickAddBusy) return;
+    const calories = Number(quickAdd.calories) || 0;
+    const protein = Number(quickAdd.protein) || 0;
+    const carbs = Number(quickAdd.carbs) || 0;
+    const fats = Number(quickAdd.fats) || 0;
+    if (!quickAdd.food_name.trim() && calories + protein + carbs + fats === 0) {
+      setError("Add a name or some macros to log.");
+      return;
+    }
+    setQuickAddBusy(true);
+    try {
+      await fetchJson("/log-meal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          food_name: quickAdd.food_name.trim() || "Quick add",
+          source: "Quick",
+          calories,
+          protein,
+          carbs,
+          fats,
+          meal_slot: quickAdd.meal_slot || 1,
+          timestamp: buildTimestamp(selectedDate),
+        }),
+      });
+      setQuickAdd({
+        food_name: "",
+        calories: "",
+        protein: "",
+        carbs: "",
+        fats: "",
+        meal_slot: quickAdd.meal_slot || 1,
+      });
+      loadData();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setQuickAddBusy(false);
+    }
+  };
 
   const mealTotals = useMemo(() => {
     const totals = {};
@@ -220,58 +310,224 @@ export default function DashboardScreen() {
       />
 
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Meals</Text>
+        <Text style={styles.sectionTitle}>Quick Add</Text>
         <Text style={styles.streakBadge}>Streak: {streak} days</Text>
       </View>
-      {mealSlots.map((slot) => (
-        <View key={slot} style={styles.mealBlock}>
-          <View style={styles.mealHeader}>
-            <Text style={styles.mealTitle}>Meal {slot}</Text>
+      <View style={styles.quickAddCard}>
+        <View style={styles.field}>
+          <Text style={styles.label}>Food name (optional)</Text>
+          <TextInput
+            value={quickAdd.food_name}
+            onChangeText={(value) =>
+              setQuickAdd((prev) => ({ ...prev, food_name: value }))
+            }
+            placeholder="Quick add"
+            placeholderTextColor={colors.muted}
+            style={styles.input}
+          />
+        </View>
+        <View style={styles.row}>
+          <View style={styles.field}>
+            <Text style={styles.label}>Calories</Text>
+            <TextInput
+              value={quickAdd.calories}
+              onChangeText={(value) =>
+                setQuickAdd((prev) => ({ ...prev, calories: value }))
+              }
+              placeholder="kcal"
+              placeholderTextColor={colors.muted}
+              keyboardType="numeric"
+              style={[styles.input, styles.halfInput]}
+            />
+          </View>
+          <View style={styles.field}>
+            <Text style={styles.label}>Protein (g)</Text>
+            <TextInput
+              value={quickAdd.protein}
+              onChangeText={(value) =>
+                setQuickAdd((prev) => ({ ...prev, protein: value }))
+              }
+              placeholder="g"
+              placeholderTextColor={colors.muted}
+              keyboardType="numeric"
+              style={[styles.input, styles.halfInput]}
+            />
+          </View>
+        </View>
+        <View style={styles.row}>
+          <View style={styles.field}>
+            <Text style={styles.label}>Carbs (g)</Text>
+            <TextInput
+              value={quickAdd.carbs}
+              onChangeText={(value) =>
+                setQuickAdd((prev) => ({ ...prev, carbs: value }))
+              }
+              placeholder="g"
+              placeholderTextColor={colors.muted}
+              keyboardType="numeric"
+              style={[styles.input, styles.halfInput]}
+            />
+          </View>
+          <View style={styles.field}>
+            <Text style={styles.label}>Fats (g)</Text>
+            <TextInput
+              value={quickAdd.fats}
+              onChangeText={(value) =>
+                setQuickAdd((prev) => ({ ...prev, fats: value }))
+              }
+              placeholder="g"
+              placeholderTextColor={colors.muted}
+              keyboardType="numeric"
+              style={[styles.input, styles.halfInput]}
+            />
+          </View>
+        </View>
+        <Text style={styles.label}>Meal slot</Text>
+        <View style={styles.chipRow}>
+          {mealSlots.map((slot) => (
             <Pressable
-              style={({ pressed }) => [
-                styles.addButton,
-                pressed && styles.addButtonPressed,
+              key={slot}
+              style={[
+                styles.chip,
+                quickAdd.meal_slot === slot && styles.chipActive,
               ]}
               onPress={() =>
-                navigation.navigate("Scanner", { mealSlot: slot, manualOnly: true })
+                setQuickAdd((prev) => ({ ...prev, meal_slot: slot }))
               }
               android_ripple={{ color: colors.softAccent }}
             >
-              <Text style={styles.addButtonText}>+ Add</Text>
+              <Text style={styles.chipText}>{getMealLabel(slot)}</Text>
             </Pressable>
-          </View>
-          {groupedMeals[slot] && groupedMeals[slot].length > 0 ? (
-            <Text style={styles.mealMeta}>
-              {mealTotals[slot]?.calories || 0} kcal · P{" "}
-              {Math.round(mealTotals[slot]?.protein || 0)}g · C{" "}
-              {Math.round(mealTotals[slot]?.carbs || 0)}g · F{" "}
-              {Math.round(mealTotals[slot]?.fats || 0)}g
-            </Text>
-          ) : null}
-          {groupedMeals[slot] && groupedMeals[slot].length > 0 ? (
-            groupedMeals[slot].map((meal) => (
-              <View key={meal.id} style={styles.logItem}>
+          ))}
+        </View>
+        <Pressable
+          style={({ pressed }) => [
+            styles.addButton,
+            pressed && styles.addButtonPressed,
+          ]}
+          onPress={handleQuickAdd}
+          android_ripple={{ color: colors.softAccent }}
+        >
+          <Text style={styles.addButtonText}>
+            {quickAddBusy ? "Saving..." : "Log Quick Add"}
+          </Text>
+        </Pressable>
+      </View>
+
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>Food Diary</Text>
+        <View style={styles.toggleRow}>
+          <Pressable
+            style={[
+              styles.toggleButton,
+              viewMode === "meal" && styles.toggleButtonActive,
+            ]}
+            onPress={() => setViewMode("meal")}
+            android_ripple={{ color: colors.softAccent }}
+          >
+            <Text style={styles.toggleText}>By meal</Text>
+          </Pressable>
+          <Pressable
+            style={[
+              styles.toggleButton,
+              viewMode === "timeline" && styles.toggleButtonActive,
+            ]}
+            onPress={() => setViewMode("timeline")}
+            android_ripple={{ color: colors.softAccent }}
+          >
+            <Text style={styles.toggleText}>Timeline</Text>
+          </Pressable>
+        </View>
+      </View>
+
+      {viewMode === "timeline" ? (
+        <View style={styles.mealBlock}>
+          {timelineLogs.length === 0 ? (
+            <Text style={styles.muted}>No items yet.</Text>
+          ) : (
+            timelineLogs.map((meal) => (
+              <View key={meal.id} style={styles.timelineItem}>
+                <View style={styles.timelineMeta}>
+                  <Text style={styles.timelineTime}>
+                    {formatTime(meal.timestamp)}
+                  </Text>
+                  <Text style={styles.timelineSlot}>
+                    {getMealLabel(meal.meal_slot || 1)}
+                  </Text>
+                </View>
                 <View style={styles.logInfo}>
                   <Text style={styles.recentName}>{meal.food_name}</Text>
                   <Text style={styles.recentMeta}>
                     {meal.calories} kcal · P {meal.protein}g · C {meal.carbs}g · F{" "}
                     {meal.fats}g
                   </Text>
-                  <Text style={styles.logSource}>{meal.source}</Text>
                 </View>
                 <Pressable
                   style={styles.deleteButton}
                   onPress={() => handleDelete(meal.id)}
+                  android_ripple={{ color: colors.softDanger }}
                 >
                   <Text style={styles.deleteText}>Delete</Text>
                 </Pressable>
               </View>
             ))
-          ) : (
-            <Text style={styles.muted}>No items yet.</Text>
           )}
         </View>
-      ))}
+      ) : (
+        mealSlots.map((slot) => (
+          <View key={slot} style={styles.mealBlock}>
+            <View style={styles.mealHeader}>
+              <Text style={styles.mealTitle}>{getMealLabel(slot)}</Text>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.addButton,
+                  pressed && styles.addButtonPressed,
+                ]}
+                onPress={() =>
+                  navigation.navigate("Scanner", {
+                    mealSlot: slot,
+                    manualOnly: true,
+                  })
+                }
+                android_ripple={{ color: colors.softAccent }}
+              >
+                <Text style={styles.addButtonText}>+ Add</Text>
+              </Pressable>
+            </View>
+            {groupedMeals[slot] && groupedMeals[slot].length > 0 ? (
+              <Text style={styles.mealMeta}>
+                {mealTotals[slot]?.calories || 0} kcal · P{" "}
+                {Math.round(mealTotals[slot]?.protein || 0)}g · C{" "}
+                {Math.round(mealTotals[slot]?.carbs || 0)}g · F{" "}
+                {Math.round(mealTotals[slot]?.fats || 0)}g
+              </Text>
+            ) : null}
+            {groupedMeals[slot] && groupedMeals[slot].length > 0 ? (
+              groupedMeals[slot].map((meal) => (
+                <View key={meal.id} style={styles.logItem}>
+                  <View style={styles.logInfo}>
+                    <Text style={styles.recentName}>{meal.food_name}</Text>
+                    <Text style={styles.recentMeta}>
+                      {meal.calories} kcal · P {meal.protein}g · C {meal.carbs}g · F{" "}
+                      {meal.fats}g
+                    </Text>
+                    <Text style={styles.logSource}>{meal.source}</Text>
+                  </View>
+                  <Pressable
+                    style={styles.deleteButton}
+                    onPress={() => handleDelete(meal.id)}
+                    android_ripple={{ color: colors.softDanger }}
+                  >
+                    <Text style={styles.deleteText}>Delete</Text>
+                  </Pressable>
+                </View>
+              ))
+            ) : (
+              <Text style={styles.muted}>No items yet.</Text>
+            )}
+          </View>
+        ))
+      )}
 
       <Text style={styles.sectionTitle}>Weekly Calories</Text>
       <View style={styles.weeklyChart}>
@@ -301,11 +557,34 @@ export default function DashboardScreen() {
       ) : (
         recents.map((meal) => (
           <View key={meal.food_name} style={styles.recentItem}>
-            <Text style={styles.recentName}>{meal.food_name}</Text>
-            <Text style={styles.recentMeta}>
-              {meal.calories} kcal · P {meal.protein}g · C {meal.carbs}g · F{" "}
-              {meal.fats}g
-            </Text>
+            <View style={styles.logInfo}>
+              <Text style={styles.recentName}>{meal.food_name}</Text>
+              <Text style={styles.recentMeta}>
+                {meal.calories} kcal · P {meal.protein}g · C {meal.carbs}g · F{" "}
+                {meal.fats}g
+              </Text>
+            </View>
+            <Pressable
+              style={({ pressed }) => [
+                styles.secondaryButton,
+                pressed && styles.secondaryButtonPressed,
+              ]}
+              onPress={() =>
+                navigation.navigate("Scanner", {
+                  manualOnly: true,
+                  prefill: {
+                    food_name: meal.food_name,
+                    calories: meal.calories,
+                    protein: meal.protein,
+                    carbs: meal.carbs,
+                    fats: meal.fats,
+                  },
+                })
+              }
+              android_ripple={{ color: colors.softAccent }}
+            >
+              <Text style={styles.secondaryText}>Add</Text>
+            </Pressable>
           </View>
         ))
       )}
@@ -342,6 +621,27 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     marginTop: 16,
+    gap: 12,
+  },
+  toggleRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  toggleButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  toggleButtonActive: {
+    backgroundColor: colors.softAccent,
+    borderColor: colors.accent,
+  },
+  toggleText: {
+    fontFamily: fonts.medium,
+    color: colors.ink,
   },
   streakBadge: {
     backgroundColor: colors.softAccent,
@@ -359,6 +659,35 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     padding: 12,
     marginBottom: 12,
+  },
+  quickAddCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 12,
+    gap: 10,
+  },
+  chipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  chip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  chipActive: {
+    backgroundColor: colors.softAccent,
+    borderColor: colors.accent,
+  },
+  chipText: {
+    fontFamily: fonts.medium,
+    color: colors.ink,
   },
   mealHeader: {
     flexDirection: "row",
@@ -425,6 +754,10 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderBottomColor: colors.border,
     borderBottomWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
   },
   recentName: {
     fontSize: 16,
@@ -485,6 +818,47 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     fontFamily: fonts.regular,
   },
+  row: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  field: {
+    flex: 1,
+    gap: 6,
+  },
+  label: {
+    fontSize: 12,
+    fontFamily: fonts.medium,
+    color: colors.muted,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: colors.surface,
+    fontFamily: fonts.regular,
+    color: colors.ink,
+  },
+  halfInput: {
+    flex: 1,
+  },
+  secondaryButton: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: colors.surface,
+  },
+  secondaryButtonPressed: {
+    backgroundColor: colors.softAccent,
+  },
+  secondaryText: {
+    fontFamily: fonts.medium,
+    color: colors.ink,
+  },
   weeklyChart: {
     gap: 10,
     marginBottom: 16,
@@ -515,5 +889,23 @@ const styles = StyleSheet.create({
     fontFamily: fonts.medium,
     color: colors.ink,
     fontSize: 12,
+  },
+  timelineItem: {
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+    paddingVertical: 10,
+  },
+  timelineMeta: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 6,
+  },
+  timelineTime: {
+    fontFamily: fonts.medium,
+    color: colors.ink,
+  },
+  timelineSlot: {
+    fontFamily: fonts.medium,
+    color: colors.muted,
   },
 });
