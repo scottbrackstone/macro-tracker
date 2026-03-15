@@ -43,9 +43,6 @@ export default function DashboardScreen() {
     return next;
   };
 
-  const formatDateParam = (dateValue) =>
-    dateValue.toISOString().slice(0, 10);
-
   const formatShortDate = (dateValue) =>
     dateValue.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
@@ -127,6 +124,24 @@ export default function DashboardScreen() {
       groups[slot].push(log);
     });
     return groups;
+  }, [dailyLogs, mealSlots]);
+
+  const mealTotals = useMemo(() => {
+    const totals = {};
+    mealSlots.forEach((slot) => {
+      totals[slot] = { calories: 0, protein: 0, carbs: 0, fats: 0 };
+    });
+    dailyLogs.forEach((log) => {
+      const slot = log.meal_slot || 1;
+      if (!totals[slot]) {
+        totals[slot] = { calories: 0, protein: 0, carbs: 0, fats: 0 };
+      }
+      totals[slot].calories += log.calories || 0;
+      totals[slot].protein += log.protein || 0;
+      totals[slot].carbs += log.carbs || 0;
+      totals[slot].fats += log.fats || 0;
+    });
+    return totals;
   }, [dailyLogs, mealSlots]);
 
   const maxWeeklyCalories = Math.max(
@@ -219,6 +234,14 @@ export default function DashboardScreen() {
               <Text style={styles.addButtonText}>+ Add</Text>
             </Pressable>
           </View>
+          {groupedMeals[slot] && groupedMeals[slot].length > 0 ? (
+            <Text style={styles.mealMeta}>
+              {mealTotals[slot]?.calories || 0} kcal · P{" "}
+              {Math.round(mealTotals[slot]?.protein || 0)}g · C{" "}
+              {Math.round(mealTotals[slot]?.carbs || 0)}g · F{" "}
+              {Math.round(mealTotals[slot]?.fats || 0)}g
+            </Text>
+          ) : null}
           {groupedMeals[slot] && groupedMeals[slot].length > 0 ? (
             groupedMeals[slot].map((meal) => (
               <View key={meal.id} style={styles.logItem}>
@@ -422,6 +445,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textTransform: "uppercase",
     fontFamily: fonts.regular,
+  },
+  mealMeta: {
+    color: colors.muted,
+    fontFamily: fonts.regular,
+    marginBottom: 8,
   },
   deleteButton: {
     paddingHorizontal: 12,
