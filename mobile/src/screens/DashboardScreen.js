@@ -228,6 +228,26 @@ export default function DashboardScreen() {
     }
   };
 
+  const handleSaveTemplate = async (meal) => {
+    if (!meal) return;
+    try {
+      await fetchJson("/custom-foods", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: meal.food_name,
+          calories: meal.calories,
+          protein: meal.protein,
+          carbs: meal.carbs,
+          fats: meal.fats,
+        }),
+      });
+      setError("");
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   const waterTotal = useMemo(
     () =>
       waterLogs.reduce((total, log) => total + (log.amount_ml || 0), 0),
@@ -790,26 +810,38 @@ export default function DashboardScreen() {
 
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Food Diary</Text>
-        <View style={styles.toggleRow}>
+        <View style={styles.diaryActions}>
+          <View style={styles.toggleRow}>
+            <Pressable
+              style={[
+                styles.toggleButton,
+                viewMode === "meal" && styles.toggleButtonActive,
+              ]}
+              onPress={() => setViewMode("meal")}
+              android_ripple={{ color: colors.softAccent }}
+            >
+              <Text style={styles.toggleText}>By meal</Text>
+            </Pressable>
+            <Pressable
+              style={[
+                styles.toggleButton,
+                viewMode === "timeline" && styles.toggleButtonActive,
+              ]}
+              onPress={() => setViewMode("timeline")}
+              android_ripple={{ color: colors.softAccent }}
+            >
+              <Text style={styles.toggleText}>Timeline</Text>
+            </Pressable>
+          </View>
           <Pressable
-            style={[
-              styles.toggleButton,
-              viewMode === "meal" && styles.toggleButtonActive,
+            style={({ pressed }) => [
+              styles.secondaryButton,
+              pressed && styles.secondaryButtonPressed,
             ]}
-            onPress={() => setViewMode("meal")}
+            onPress={handleCopyYesterday}
             android_ripple={{ color: colors.softAccent }}
           >
-            <Text style={styles.toggleText}>By meal</Text>
-          </Pressable>
-          <Pressable
-            style={[
-              styles.toggleButton,
-              viewMode === "timeline" && styles.toggleButtonActive,
-            ]}
-            onPress={() => setViewMode("timeline")}
-            android_ripple={{ color: colors.softAccent }}
-          >
-            <Text style={styles.toggleText}>Timeline</Text>
+            <Text style={styles.secondaryText}>Copy yesterday</Text>
           </Pressable>
         </View>
       </View>
@@ -845,13 +877,29 @@ export default function DashboardScreen() {
                         {formatNumber(meal.carbs)}g · F {formatNumber(meal.fats)}g
                       </Text>
                     </Pressable>
-                    <Pressable
-                      style={styles.deleteButton}
-                      onPress={() => handleDelete(meal.id)}
-                      android_ripple={{ color: colors.softDanger }}
-                    >
-                      <Text style={styles.deleteText}>Delete</Text>
-                    </Pressable>
+                    <View style={styles.logActions}>
+                      <Pressable
+                        style={styles.secondaryButton}
+                        onPress={() => handleCopyMeal(meal)}
+                        android_ripple={{ color: colors.softAccent }}
+                      >
+                        <Text style={styles.secondaryText}>Copy</Text>
+                      </Pressable>
+                      <Pressable
+                        style={styles.secondaryButton}
+                        onPress={() => handleSaveTemplate(meal)}
+                        android_ripple={{ color: colors.softAccent }}
+                      >
+                        <Text style={styles.secondaryText}>Save</Text>
+                      </Pressable>
+                      <Pressable
+                        style={styles.deleteButton}
+                        onPress={() => handleDelete(meal.id)}
+                        android_ripple={{ color: colors.softDanger }}
+                      >
+                        <Text style={styles.deleteText}>Delete</Text>
+                      </Pressable>
+                    </View>
                   </>
                 )}
               </View>
@@ -913,13 +961,29 @@ export default function DashboardScreen() {
                         </Text>
                         <Text style={styles.logSource}>{meal.source}</Text>
                       </Pressable>
-                      <Pressable
-                        style={styles.deleteButton}
-                        onPress={() => handleDelete(meal.id)}
-                        android_ripple={{ color: colors.softDanger }}
-                      >
-                        <Text style={styles.deleteText}>Delete</Text>
-                      </Pressable>
+                      <View style={styles.logActions}>
+                        <Pressable
+                          style={styles.secondaryButton}
+                          onPress={() => handleCopyMeal(meal)}
+                          android_ripple={{ color: colors.softAccent }}
+                        >
+                          <Text style={styles.secondaryText}>Copy</Text>
+                        </Pressable>
+                        <Pressable
+                          style={styles.secondaryButton}
+                          onPress={() => handleSaveTemplate(meal)}
+                          android_ripple={{ color: colors.softAccent }}
+                        >
+                          <Text style={styles.secondaryText}>Save</Text>
+                        </Pressable>
+                        <Pressable
+                          style={styles.deleteButton}
+                          onPress={() => handleDelete(meal.id)}
+                          android_ripple={{ color: colors.softDanger }}
+                        >
+                          <Text style={styles.deleteText}>Delete</Text>
+                        </Pressable>
+                      </View>
                     </>
                   )}
                 </View>
@@ -1027,6 +1091,10 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginTop: 16,
     gap: 12,
+  },
+  diaryActions: {
+    gap: 8,
+    alignItems: "flex-end",
   },
   toggleRow: {
     flexDirection: "row",
@@ -1207,6 +1275,12 @@ const styles = StyleSheet.create({
   },
   logInfo: {
     flex: 1,
+  },
+  logActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    alignItems: "center",
   },
   logSource: {
     color: colors.muted,

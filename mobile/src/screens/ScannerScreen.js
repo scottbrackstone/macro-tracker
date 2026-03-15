@@ -9,6 +9,7 @@ import {
   View,
 } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import * as Haptics from "expo-haptics";
 import { useFocusEffect, useNavigation, useRoute } from "@react-navigation/native";
 
 import { API_BASE_URL, fetchJson } from "../api/client";
@@ -19,6 +20,9 @@ const MODES = {
   BARCODE: "barcode",
   MANUAL: "manual",
 };
+
+const GRAM_PRESETS = [50, 100, 150, 200, 250];
+const MULTIPLIER_PRESETS = [0.5, 1, 1.5, 2];
 
 export default function ScannerScreen() {
   const route = useRoute();
@@ -53,6 +57,13 @@ export default function ScannerScreen() {
   const [editLogId, setEditLogId] = useState(null);
 
   const planOffsets = [1, 2, 3, 4, 5, 6, 7];
+  const parseServingGrams = (text) => {
+    if (!text) return null;
+    const match = text.match(/(\d+(\.\d+)?)\s*g/i);
+    if (!match) return null;
+    const value = Number(match[1]);
+    return Number.isFinite(value) ? value : null;
+  };
   const formatDateParam = (dateValue) =>
     dateValue.toISOString().slice(0, 10);
   const formatDayLabel = (dateValue) =>
@@ -161,6 +172,13 @@ export default function ScannerScreen() {
       });
       applyResult({ ...response, source: "AI" });
       setStatus("Review and confirm.");
+      try {
+        await Haptics.notificationAsync(
+          Haptics.NotificationFeedbackType.Success
+        );
+      } catch (err) {
+        // Ignore haptics errors in environments without support.
+      }
     } catch (err) {
       const message =
         err.message?.includes("Network request failed")
@@ -184,6 +202,13 @@ export default function ScannerScreen() {
       applyResult({ ...response, source: "Barcode", barcode: data });
       setStatus("Review and confirm.");
       setScanBanner(`Captured: ${response.food_name}`);
+      try {
+        await Haptics.notificationAsync(
+          Haptics.NotificationFeedbackType.Success
+        );
+      } catch (err) {
+        // Ignore haptics errors in environments without support.
+      }
     } catch (err) {
       const message =
         err.message?.includes("Network request failed")
@@ -261,6 +286,13 @@ export default function ScannerScreen() {
       setPlanDays([]);
       setEditLogId(null);
       setStatus(isEdit ? "Updated!" : "Saved!");
+      try {
+        await Haptics.notificationAsync(
+          Haptics.NotificationFeedbackType.Success
+        );
+      } catch (err) {
+        // Ignore haptics errors in environments without support.
+      }
     } catch (err) {
       const message =
         err.message?.includes("Network request failed")
@@ -586,14 +618,24 @@ export default function ScannerScreen() {
       ) : null}
 
       {!manualOnly && mode !== MODES.MANUAL ? (
-        <CameraView
-          ref={cameraRef}
-          style={styles.camera}
-          barcodeScannerSettings={{
-            barcodeTypes: ["ean13", "ean8", "upc_a", "upc_e"],
-          }}
-          onBarcodeScanned={mode === MODES.BARCODE ? handleBarcodeScanned : undefined}
-        />
+        <View style={styles.cameraWrap}>
+          <CameraView
+            ref={cameraRef}
+            style={styles.camera}
+            barcodeScannerSettings={{
+              barcodeTypes: ["ean13", "ean8", "upc_a", "upc_e"],
+            }}
+            onBarcodeScanned={mode === MODES.BARCODE ? handleBarcodeScanned : undefined}
+          />
+          {mode === MODES.BARCODE ? (
+            <View
+              style={[
+                styles.scanOverlay,
+                scanBanner && styles.scanOverlayActive,
+              ]}
+            />
+          ) : null}
+        </View>
       ) : null}
       {!manualOnly && mode === MODES.BARCODE && scanBanner ? (
         <View style={styles.scanBanner}>
@@ -734,6 +776,79 @@ export default function ScannerScreen() {
                   />
                 </View>
               </View>
+              <Text style={styles.sectionTitle}>Quick grams</Text>
+              <View style={styles.presetRow}>
+                {GRAM_PRESETS.map((amount) => (
+                  <Pressable
+                    key={amount}
+                    style={styles.presetChip}
+                    onPress={() =>
+                      setDraft((prev) => ({ ...prev, grams: String(amount) }))
+                    }
+                    android_ripple={{ color: colors.softAccent }}
+                  >
+                    <Text style={styles.presetText}>{amount}g</Text>
+                  </Pressable>
+                ))}
+              </View>
+              <Text style={styles.sectionTitle}>Serving multiplier</Text>
+              <View style={styles.presetRow}>
+                {MULTIPLIER_PRESETS.map((amount) => (
+                  <Pressable
+                    key={amount}
+                    style={styles.presetChip}
+                    onPress={() =>
+                      setDraft((prev) => ({
+                        ...prev,
+                        multiplier: String(amount),
+                        grams: "",
+                      }))
+                    }
+                    android_ripple={{ color: colors.softAccent }}
+                  >
+                    <Text style={styles.presetText}>{amount}x</Text>
+                  </Pressable>
+                ))}
+              </View>
+              {(() => {
+                const servingGrams = parseServingGrams(result.serving_size);
+                if (!servingGrams) return null;
+                return (
+                  <Pressable
+                    style={styles.secondaryButton}
+                    onPress={() =>
+                      setDraft((prev) => ({
+                        ...prev,
+                        grams: String(servingGrams),
+                        multiplier: "1",
+                      }))
+                    }
+                    android_ripple={{ color: colors.softAccent }}
+                  >
+                    <Text style={styles.secondaryText}>
+                      Use serving size ({servingGrams}g)
+                    </Text>
+                  </Pressable>
+                );
+              })()}
+              {(() => {
+                const gramsValue = Number(draft.grams);
+                const multiplierValue = Number(draft.multiplier) || 1;
+                const gramsUsed = gramsValue > 0 ? gramsValue : 100 * multiplierValue;
+                const factor = gramsUsed / 100;
+                const baseCalories = Number(draft.calories) || 0;
+                const baseProtein = Number(draft.protein) || 0;
+                const baseCarbs = Number(draft.carbs) || 0;
+                const baseFats = Number(draft.fats) || 0;
+                return (
+                  <Text style={styles.muted}>
+                    Totals: {formatNumber(baseCalories * factor)} kcal · P{" "}
+                    {formatNumber(baseProtein * factor)}g · C{" "}
+                    {formatNumber(baseCarbs * factor)}g · F{" "}
+                    {formatNumber(baseFats * factor)}g
+                  </Text>
+                );
+              })()}
               <Text style={styles.sectionTitle}>Plan next 7 days</Text>
               <View style={styles.planRow}>
                 {planOffsets.map((offset) => {
@@ -959,6 +1074,19 @@ export default function ScannerScreen() {
             style={styles.input}
           />
         </View>
+        <Text style={styles.sectionTitle}>Quick grams</Text>
+        <View style={styles.presetRow}>
+          {GRAM_PRESETS.map((amount) => (
+            <Pressable
+              key={amount}
+              style={styles.presetChip}
+              onPress={() => handleManualChange("grams", String(amount))}
+              android_ripple={{ color: colors.softAccent }}
+            >
+              <Text style={styles.presetText}>{amount}g</Text>
+            </Pressable>
+          ))}
+        </View>
         <Pressable
           style={({ pressed }) => [
             styles.button,
@@ -1021,6 +1149,24 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
+  },
+  cameraWrap: {
+    position: "relative",
+  },
+  scanOverlay: {
+    position: "absolute",
+    top: "20%",
+    left: "10%",
+    right: "10%",
+    height: "40%",
+    borderWidth: 2,
+    borderColor: colors.border,
+    borderRadius: 16,
+    backgroundColor: "rgba(0,0,0,0.05)",
+  },
+  scanOverlayActive: {
+    borderColor: colors.accent,
+    backgroundColor: "rgba(122, 103, 255, 0.08)",
   },
   button: {
     backgroundColor: colors.accent,
@@ -1108,6 +1254,23 @@ const styles = StyleSheet.create({
     borderColor: colors.accent,
   },
   mealChipText: {
+    fontFamily: fonts.medium,
+    color: colors.ink,
+  },
+  presetRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  presetChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  presetText: {
     fontFamily: fonts.medium,
     color: colors.ink,
   },
