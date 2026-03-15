@@ -363,5 +363,7 @@ def search_food(query: str) -> List[BarcodeResult]:
         raise HTTPException(status_code=400, detail="Query too short.")
     try:
         return search_foods(query)
+    except TimeoutError as exc:
+        raise HTTPException(status_code=504, detail="Food search timed out. Try again.") from exc
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Food search failed: {exc}") from exc
+        raise HTTPException(status_code=502, detail="Food search failed.") from exc

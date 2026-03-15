@@ -3,13 +3,24 @@ from __future__ import annotations
 from typing import Any
 
 import requests
-from requests import HTTPError, RequestException
+from requests import HTTPError, RequestException, Timeout
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from ..schemas import BarcodeResult
 
 DEFAULT_HEADERS = {
     "User-Agent": "MacroTracker/1.0 (contact: support@example.com)",
 }
+
+_session = requests.Session()
+_retry = Retry(
+    total=2,
+    backoff_factor=0.3,
+    status_forcelist=(429, 500, 502, 503, 504),
+    allowed_methods=frozenset(["GET"]),
+)
+_session.mount("https://", HTTPAdapter(max_retries=_retry))
 
 def _safe_float(value: Any) -> float | None:
     try:
@@ -27,7 +38,7 @@ def _safe_int(value: Any) -> int | None:
 
 def fetch_barcode(barcode: str) -> BarcodeResult:
     url = f"https://world.openfoodfacts.org/api/v2/product/{barcode}.json"
-    response = requests.get(url, timeout=10, headers=DEFAULT_HEADERS)
+    response = _session.get(url, timeout=(5, 12), headers=DEFAULT_HEADERS)
     try:
         response.raise_for_status()
     except HTTPError as exc:
@@ -66,13 +77,15 @@ def search_foods(query: str, limit: int = 10) -> list[BarcodeResult]:
         "page_size": limit,
     }
     try:
-        response = requests.get(url, params=params, timeout=10, headers=DEFAULT_HEADERS)
+        response = _session.get(url, params=params, timeout=(5, 12), headers=DEFAULT_HEADERS)
         response.raise_for_status()
         payload = response.json()
+    except Timeout as exc:
+        raise TimeoutError("Food search timed out.") from exc
     except RequestException:
         fallback_url = "https://world.openfoodfacts.org/api/v2/search"
         fallback_params = {"search_terms": query, "page_size": limit}
-        response = requests.get(
+        response = _session.get(
             fallback_url, params=fallback_params, timeout=10, headers=DEFAULT_HEADERS
         )
         response.raise_for_status()
