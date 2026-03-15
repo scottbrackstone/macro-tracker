@@ -364,17 +364,23 @@ def search_food(query: str) -> List[BarcodeResult]:
         raise HTTPException(status_code=400, detail="Query too short.")
     results: List[BarcodeResult] = []
     errors: list[Exception] = []
-
-    try:
-        results.extend(search_foods(query))
-    except Exception as exc:
-        errors.append(exc)
+    usda_results: List[BarcodeResult] = []
+    off_results: List[BarcodeResult] = []
 
     if settings.usda_api_key:
         try:
-            results.extend(search_usda_foods(query, settings.usda_api_key))
+            usda_results = search_usda_foods(query, settings.usda_api_key)
         except Exception as exc:
             errors.append(exc)
+
+    if not settings.usda_api_key or len(usda_results) < 5:
+        try:
+            off_results = search_foods(query)
+        except Exception as exc:
+            errors.append(exc)
+
+    results.extend(usda_results)
+    results.extend(off_results)
 
     if results:
         seen = set()
