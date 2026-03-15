@@ -44,6 +44,15 @@ export default function DashboardScreen() {
     meal_slot: 1,
   });
   const [quickAddBusy, setQuickAddBusy] = useState(false);
+  const [editingMeal, setEditingMeal] = useState(null);
+  const [editDraft, setEditDraft] = useState({
+    food_name: "",
+    calories: "",
+    protein: "",
+    carbs: "",
+    fats: "",
+  });
+  const [editBusy, setEditBusy] = useState(false);
   const navigation = useNavigation();
 
   const calendarDays = [-1, 0, 1, 2, 3, 4, 5, 6, 7];
@@ -141,6 +150,56 @@ export default function DashboardScreen() {
     }
   };
 
+  const startEdit = (meal) => {
+    if (!meal) return;
+    setEditingMeal(meal.id);
+    setEditDraft({
+      food_name: meal.food_name || "",
+      calories: meal.calories != null ? String(meal.calories) : "",
+      protein: meal.protein != null ? String(meal.protein) : "",
+      carbs: meal.carbs != null ? String(meal.carbs) : "",
+      fats: meal.fats != null ? String(meal.fats) : "",
+    });
+  };
+
+  const cancelEdit = () => {
+    setEditingMeal(null);
+    setEditDraft({
+      food_name: "",
+      calories: "",
+      protein: "",
+      carbs: "",
+      fats: "",
+    });
+  };
+
+  const saveEdit = async (meal) => {
+    if (editBusy || !meal) return;
+    setEditBusy(true);
+    try {
+      await fetchJson(`/log-meal/${meal.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          food_name: editDraft.food_name.trim() || meal.food_name,
+          source: meal.source,
+          meal_slot: meal.meal_slot || 1,
+          timestamp: meal.timestamp,
+          calories: Math.round(Number(editDraft.calories) || 0),
+          protein: Number(editDraft.protein) || 0,
+          carbs: Number(editDraft.carbs) || 0,
+          fats: Number(editDraft.fats) || 0,
+        }),
+      });
+      cancelEdit();
+      loadData();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setEditBusy(false);
+    }
+  };
+
   const mealsPerDay = Math.max(1, targets.meals_per_day || 3);
   const mealSlots = useMemo(
     () => Array.from({ length: mealsPerDay }, (_, idx) => idx + 1),
@@ -177,7 +236,7 @@ export default function DashboardScreen() {
 
   const handleQuickAdd = async () => {
     if (quickAddBusy) return;
-    const calories = Number(quickAdd.calories) || 0;
+    const calories = Math.round(Number(quickAdd.calories) || 0);
     const protein = Number(quickAdd.protein) || 0;
     const carbs = Number(quickAdd.carbs) || 0;
     const fats = Number(quickAdd.fats) || 0;
@@ -254,6 +313,104 @@ export default function DashboardScreen() {
     }
     return count;
   }
+
+  const renderEditFields = (meal) => (
+    <View style={styles.editCard}>
+      <View style={styles.field}>
+        <Text style={styles.label}>Food name</Text>
+        <TextInput
+          value={editDraft.food_name}
+          onChangeText={(value) =>
+            setEditDraft((prev) => ({ ...prev, food_name: value }))
+          }
+          placeholder="Food name"
+          placeholderTextColor={colors.muted}
+          style={styles.input}
+        />
+      </View>
+      <View style={styles.row}>
+        <View style={styles.field}>
+          <Text style={styles.label}>Calories</Text>
+          <TextInput
+            value={editDraft.calories}
+            onChangeText={(value) =>
+              setEditDraft((prev) => ({ ...prev, calories: value }))
+            }
+            placeholder="kcal"
+            placeholderTextColor={colors.muted}
+            keyboardType="numeric"
+            style={[styles.input, styles.halfInput]}
+          />
+        </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>Protein (g)</Text>
+          <TextInput
+            value={editDraft.protein}
+            onChangeText={(value) =>
+              setEditDraft((prev) => ({ ...prev, protein: value }))
+            }
+            placeholder="g"
+            placeholderTextColor={colors.muted}
+            keyboardType="numeric"
+            style={[styles.input, styles.halfInput]}
+          />
+        </View>
+      </View>
+      <View style={styles.row}>
+        <View style={styles.field}>
+          <Text style={styles.label}>Carbs (g)</Text>
+          <TextInput
+            value={editDraft.carbs}
+            onChangeText={(value) =>
+              setEditDraft((prev) => ({ ...prev, carbs: value }))
+            }
+            placeholder="g"
+            placeholderTextColor={colors.muted}
+            keyboardType="numeric"
+            style={[styles.input, styles.halfInput]}
+          />
+        </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>Fats (g)</Text>
+          <TextInput
+            value={editDraft.fats}
+            onChangeText={(value) =>
+              setEditDraft((prev) => ({ ...prev, fats: value }))
+            }
+            placeholder="g"
+            placeholderTextColor={colors.muted}
+            keyboardType="numeric"
+            style={[styles.input, styles.halfInput]}
+          />
+        </View>
+      </View>
+      <View style={styles.editActions}>
+        <Pressable
+          style={({ pressed }) => [
+            styles.secondaryButton,
+            pressed && styles.secondaryButtonPressed,
+          ]}
+          onPress={cancelEdit}
+          android_ripple={{ color: colors.softAccent }}
+        >
+          <Text style={styles.secondaryText}>Cancel</Text>
+        </Pressable>
+        <Pressable
+          style={({ pressed }) => [
+            styles.addButton,
+            pressed && styles.addButtonPressed,
+          ]}
+          onPress={() => saveEdit(meal)}
+          disabled={editBusy}
+          android_ripple={{ color: colors.softAccent }}
+        >
+          <Text style={styles.addButtonText}>
+            {editBusy ? "Saving..." : "Save"}
+          </Text>
+        </Pressable>
+      </View>
+    </View>
+  );
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -456,29 +613,31 @@ export default function DashboardScreen() {
                     {getMealLabel(meal.meal_slot || 1)}
                   </Text>
                 </View>
-                <Pressable
-                  style={styles.logInfo}
-                  onPress={() =>
-                    navigation.navigate("Scanner", {
-                      manualOnly: true,
-                      editLog: meal,
-                    })
-                  }
-                >
-                  <Text style={styles.recentName}>{meal.food_name}</Text>
-                  <Text style={styles.recentMeta}>
-                    {formatNumber(meal.calories)} kcal · P{" "}
-                    {formatNumber(meal.protein)}g · C {formatNumber(meal.carbs)}g · F{" "}
-                    {formatNumber(meal.fats)}g
-                  </Text>
-                </Pressable>
-                <Pressable
-                  style={styles.deleteButton}
-                  onPress={() => handleDelete(meal.id)}
-                  android_ripple={{ color: colors.softDanger }}
-                >
-                  <Text style={styles.deleteText}>Delete</Text>
-                </Pressable>
+                {editingMeal === meal.id ? (
+                  renderEditFields(meal)
+                ) : (
+                  <>
+                    <Pressable
+                      style={styles.logInfo}
+                      onPress={() => startEdit(meal)}
+                      android_ripple={{ color: colors.softAccent }}
+                    >
+                      <Text style={styles.recentName}>{meal.food_name}</Text>
+                      <Text style={styles.recentMeta}>
+                        {formatNumber(meal.calories)} kcal · P{" "}
+                        {formatNumber(meal.protein)}g · C{" "}
+                        {formatNumber(meal.carbs)}g · F {formatNumber(meal.fats)}g
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      style={styles.deleteButton}
+                      onPress={() => handleDelete(meal.id)}
+                      android_ripple={{ color: colors.softDanger }}
+                    >
+                      <Text style={styles.deleteText}>Delete</Text>
+                    </Pressable>
+                  </>
+                )}
               </View>
             ))
           )}
@@ -514,31 +673,39 @@ export default function DashboardScreen() {
             ) : null}
             {groupedMeals[slot] && groupedMeals[slot].length > 0 ? (
               groupedMeals[slot].map((meal) => (
-                <View key={meal.id} style={styles.logItem}>
-                  <Pressable
-                    style={styles.logInfo}
-                    onPress={() =>
-                      navigation.navigate("Scanner", {
-                        manualOnly: true,
-                        editLog: meal,
-                      })
-                    }
-                  >
-                    <Text style={styles.recentName}>{meal.food_name}</Text>
-                    <Text style={styles.recentMeta}>
-                      {formatNumber(meal.calories)} kcal · P{" "}
-                      {formatNumber(meal.protein)}g · C {formatNumber(meal.carbs)}g · F{" "}
-                      {formatNumber(meal.fats)}g
-                    </Text>
-                    <Text style={styles.logSource}>{meal.source}</Text>
-                  </Pressable>
-                  <Pressable
-                    style={styles.deleteButton}
-                    onPress={() => handleDelete(meal.id)}
-                    android_ripple={{ color: colors.softDanger }}
-                  >
-                    <Text style={styles.deleteText}>Delete</Text>
-                  </Pressable>
+                <View
+                  key={meal.id}
+                  style={[
+                    styles.logItem,
+                    editingMeal === meal.id && styles.logItemEditing,
+                  ]}
+                >
+                  {editingMeal === meal.id ? (
+                    renderEditFields(meal)
+                  ) : (
+                    <>
+                      <Pressable
+                        style={styles.logInfo}
+                        onPress={() => startEdit(meal)}
+                        android_ripple={{ color: colors.softAccent }}
+                      >
+                        <Text style={styles.recentName}>{meal.food_name}</Text>
+                        <Text style={styles.recentMeta}>
+                          {formatNumber(meal.calories)} kcal · P{" "}
+                          {formatNumber(meal.protein)}g · C{" "}
+                          {formatNumber(meal.carbs)}g · F {formatNumber(meal.fats)}g
+                        </Text>
+                        <Text style={styles.logSource}>{meal.source}</Text>
+                      </Pressable>
+                      <Pressable
+                        style={styles.deleteButton}
+                        onPress={() => handleDelete(meal.id)}
+                        android_ripple={{ color: colors.softDanger }}
+                      >
+                        <Text style={styles.deleteText}>Delete</Text>
+                      </Pressable>
+                    </>
+                  )}
                 </View>
               ))
             ) : (
@@ -800,6 +967,10 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     gap: 10,
   },
+  logItemEditing: {
+    flexDirection: "column",
+    alignItems: "stretch",
+  },
   logInfo: {
     flex: 1,
   },
@@ -911,6 +1082,19 @@ const styles = StyleSheet.create({
     fontFamily: fonts.medium,
     color: colors.ink,
     fontSize: 12,
+  },
+  editCard: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    padding: 12,
+    gap: 10,
+    backgroundColor: colors.background,
+  },
+  editActions: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 10,
   },
   timelineItem: {
     borderBottomColor: colors.border,

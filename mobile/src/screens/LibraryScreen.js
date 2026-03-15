@@ -32,6 +32,7 @@ export default function LibraryScreen() {
     protein: "",
     carbs: "",
     fats: "",
+    grams: "100",
   });
   const [recipeForm, setRecipeForm] = useState({
     name: "",
@@ -166,12 +167,14 @@ export default function LibraryScreen() {
       setStatus("Please enter an ingredient name.");
       return;
     }
+    const gramsValue = ingredientForm.grams?.toString().trim() || "100";
     const ingredient = {
       name: ingredientForm.name.trim(),
       calories: Number(ingredientForm.calories) || 0,
       protein: Number(ingredientForm.protein) || 0,
       carbs: Number(ingredientForm.carbs) || 0,
       fats: Number(ingredientForm.fats) || 0,
+      grams: gramsValue,
     };
     setRecipeIngredients((prev) => [...prev, ingredient]);
     setIngredientForm({
@@ -180,6 +183,7 @@ export default function LibraryScreen() {
       protein: "",
       carbs: "",
       fats: "",
+      grams: "100",
     });
   };
 
@@ -187,14 +191,24 @@ export default function LibraryScreen() {
     setRecipeIngredients((prev) => prev.filter((_, idx) => idx !== index));
   };
 
+  const updateIngredient = (index, updates) => {
+    setRecipeIngredients((prev) =>
+      prev.map((item, idx) => (idx === index ? { ...item, ...updates } : item))
+    );
+  };
+
   const recipeTotals = useMemo(() => {
     return recipeIngredients.reduce(
-      (acc, item) => ({
-        calories: acc.calories + (Number(item.calories) || 0),
-        protein: acc.protein + (Number(item.protein) || 0),
-        carbs: acc.carbs + (Number(item.carbs) || 0),
-        fats: acc.fats + (Number(item.fats) || 0),
-      }),
+      (acc, item) => {
+        const gramsValue = Number(item.grams);
+        const factor = gramsValue > 0 ? gramsValue / 100 : 1;
+        return {
+          calories: acc.calories + (Number(item.calories) || 0) * factor,
+          protein: acc.protein + (Number(item.protein) || 0) * factor,
+          carbs: acc.carbs + (Number(item.carbs) || 0) * factor,
+          fats: acc.fats + (Number(item.fats) || 0) * factor,
+        };
+      },
       { calories: 0, protein: 0, carbs: 0, fats: 0 }
     );
   }, [recipeIngredients]);
@@ -285,6 +299,7 @@ export default function LibraryScreen() {
         protein: Number(item.protein) || 0,
         carbs: Number(item.carbs) || 0,
         fats: Number(item.fats) || 0,
+        grams: "100",
       },
     ]);
   };
@@ -488,6 +503,19 @@ export default function LibraryScreen() {
             />
           </View>
         </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>Grams used (per 100g)</Text>
+          <TextInput
+            value={ingredientForm.grams}
+            onChangeText={(value) =>
+              setIngredientForm((prev) => ({ ...prev, grams: value }))
+            }
+            placeholder="100"
+            placeholderTextColor={colors.muted}
+            keyboardType="numeric"
+            style={styles.input}
+          />
+        </View>
         <Pressable style={styles.secondaryButton} onPress={addIngredientManual}>
           <Text style={styles.secondaryText}>Add ingredient</Text>
         </Pressable>
@@ -497,15 +525,38 @@ export default function LibraryScreen() {
         ) : (
           recipeIngredients.map((ingredient, index) => (
             <View key={`${ingredient.name}-${index}`} style={styles.listItem}>
-              <View style={styles.listInfo}>
-                <Text style={styles.foodName}>{ingredient.name}</Text>
-                <Text style={styles.foodMeta}>
-                  {formatNumber(ingredient.calories)} kcal · P{" "}
-                  {formatNumber(ingredient.protein)}g · C{" "}
-                  {formatNumber(ingredient.carbs)}g · F{" "}
-                  {formatNumber(ingredient.fats)}g
-                </Text>
-              </View>
+              {(() => {
+                const gramsValue = Number(ingredient.grams);
+                const factor = gramsValue > 0 ? gramsValue / 100 : 1;
+                const displayCalories = (Number(ingredient.calories) || 0) * factor;
+                const displayProtein = (Number(ingredient.protein) || 0) * factor;
+                const displayCarbs = (Number(ingredient.carbs) || 0) * factor;
+                const displayFats = (Number(ingredient.fats) || 0) * factor;
+                return (
+                  <View style={styles.listInfo}>
+                    <Text style={styles.foodName}>{ingredient.name}</Text>
+                    <Text style={styles.foodMeta}>
+                      {formatNumber(displayCalories)} kcal · P{" "}
+                      {formatNumber(displayProtein)}g · C{" "}
+                      {formatNumber(displayCarbs)}g · F{" "}
+                      {formatNumber(displayFats)}g
+                    </Text>
+                    <View style={styles.ingredientControls}>
+                      <Text style={styles.label}>Grams</Text>
+                      <TextInput
+                        value={String(ingredient.grams ?? "")}
+                        onChangeText={(value) =>
+                          updateIngredient(index, { grams: value })
+                        }
+                        placeholder="100"
+                        placeholderTextColor={colors.muted}
+                        keyboardType="numeric"
+                        style={[styles.input, styles.gramsInput]}
+                      />
+                    </View>
+                  </View>
+                );
+              })()}
               <Pressable
                 style={styles.deleteButton}
                 onPress={() => removeIngredient(index)}
@@ -811,6 +862,13 @@ const styles = StyleSheet.create({
   listActions: {
     flexDirection: "row",
     gap: 8,
+  },
+  ingredientControls: {
+    marginTop: 8,
+    gap: 6,
+  },
+  gramsInput: {
+    maxWidth: 120,
   },
   foodName: {
     fontFamily: fonts.medium,

@@ -67,6 +67,7 @@ def _parse_ingredients(raw: str) -> list[RecipeIngredient]:
                 protein=float(item.get("protein") or 0),
                 carbs=float(item.get("carbs") or 0),
                 fats=float(item.get("fats") or 0),
+                grams=float(item.get("grams") or 100),
             )
         )
     return ingredients
@@ -521,10 +522,18 @@ def create_recipe(payload: RecipeCreate, session: Session = Depends(get_session)
     servings = max(1, payload.servings or 1)
     ingredients = payload.ingredients or []
     if ingredients:
-        total_calories = sum(item.calories for item in ingredients)
-        total_protein = sum(item.protein for item in ingredients)
-        total_carbs = sum(item.carbs for item in ingredients)
-        total_fats = sum(item.fats for item in ingredients)
+        total_calories = 0.0
+        total_protein = 0.0
+        total_carbs = 0.0
+        total_fats = 0.0
+        for item in ingredients:
+            grams = item.grams if item.grams and item.grams > 0 else 100
+            factor = grams / 100
+            total_calories += item.calories * factor
+            total_protein += item.protein * factor
+            total_carbs += item.carbs * factor
+            total_fats += item.fats * factor
+        total_calories = float(total_calories)
     else:
         total_calories = int(payload.calories or 0)
         total_protein = float(payload.protein or 0)
@@ -533,10 +542,10 @@ def create_recipe(payload: RecipeCreate, session: Session = Depends(get_session)
     recipe = Recipe(
         name=payload.name,
         servings=servings,
-        calories=total_calories,
-        protein=total_protein,
-        carbs=total_carbs,
-        fats=total_fats,
+        calories=int(round(total_calories)),
+        protein=float(total_protein),
+        carbs=float(total_carbs),
+        fats=float(total_fats),
         ingredients_json=json.dumps([item.model_dump() for item in ingredients]),
     )
     session.add(recipe)

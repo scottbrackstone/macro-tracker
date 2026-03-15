@@ -104,6 +104,7 @@ class RecipeIngredient(SQLModel):
     protein: float
     carbs: float
     fats: float
+    grams: float = 100
 
 
 class RecipeCreate(SQLModel):
