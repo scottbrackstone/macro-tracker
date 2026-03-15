@@ -26,7 +26,7 @@ from .schemas import (
     WeightLogRead,
 )
 from .services.gemini import analyze_food_image
-from .services.openfoodfacts import fetch_barcode
+from .services.openfoodfacts import fetch_barcode, search_foods
 from .settings import get_settings
 
 settings = get_settings()
@@ -354,3 +354,14 @@ def scan_barcode(barcode_number: str) -> BarcodeResult:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail="Barcode lookup failed.") from exc
+
+
+@app.get("/search-food", response_model=List[BarcodeResult])
+def search_food(query: str) -> List[BarcodeResult]:
+    query = query.strip()
+    if len(query) < 2:
+        raise HTTPException(status_code=400, detail="Query too short.")
+    try:
+        return search_foods(query)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Food search failed.") from exc

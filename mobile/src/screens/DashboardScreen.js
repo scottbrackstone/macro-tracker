@@ -228,8 +228,14 @@ export default function DashboardScreen() {
           <View style={styles.mealHeader}>
             <Text style={styles.mealTitle}>Meal {slot}</Text>
             <Pressable
-              style={styles.addButton}
-              onPress={() => navigation.navigate("Scanner", { mealSlot: slot })}
+              style={({ pressed }) => [
+                styles.addButton,
+                pressed && styles.addButtonPressed,
+              ]}
+              onPress={() =>
+                navigation.navigate("Scanner", { mealSlot: slot, manualOnly: true })
+              }
+              android_ripple={{ color: colors.softAccent }}
             >
               <Text style={styles.addButtonText}>+ Add</Text>
             </Pressable>
@@ -374,6 +380,9 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 4 },
     elevation: 4,
+  },
+  addButtonPressed: {
+    opacity: 0.85,
   },
   addButtonText: {
     color: "#fff",

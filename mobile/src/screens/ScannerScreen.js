@@ -9,7 +9,7 @@ import {
   View,
 } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
-import { useFocusEffect, useRoute } from "@react-navigation/native";
+import { useFocusEffect, useNavigation, useRoute } from "@react-navigation/native";
 
 import { API_BASE_URL, fetchJson } from "../api/client";
 import { colors, fonts } from "../theme";
@@ -17,10 +17,12 @@ import { colors, fonts } from "../theme";
 const MODES = {
   AI: "ai",
   BARCODE: "barcode",
+  MANUAL: "manual",
 };
 
 export default function ScannerScreen() {
   const route = useRoute();
+  const navigation = useNavigation();
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef(null);
   const [mode, setMode] = useState(MODES.AI);
@@ -33,6 +35,10 @@ export default function ScannerScreen() {
   const [recents, setRecents] = useState([]);
   const [mealSlot, setMealSlot] = useState(1);
   const [mealsPerDay, setMealsPerDay] = useState(3);
+  const [manualOnly, setManualOnly] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [searching, setSearching] = useState(false);
   const [manual, setManual] = useState({
     food_name: "",
     calories: "",
@@ -79,6 +85,12 @@ export default function ScannerScreen() {
     if (route.params?.prefill) {
       applyResult({ ...route.params.prefill, source: "Library" });
       setStatus("Review and confirm.");
+    }
+    if (route.params?.manualOnly) {
+      setManualOnly(true);
+      setMode(MODES.MANUAL);
+    } else {
+      setManualOnly(false);
     }
   }, [route.params]);
 
@@ -226,6 +238,39 @@ export default function ScannerScreen() {
     setManual((prev) => ({ ...prev, [key]: value }));
   };
 
+  const applySearchResult = (item) => {
+    setManual({
+      food_name: item.food_name || "",
+      calories: item.calories != null ? String(item.calories) : "",
+      protein: item.protein != null ? String(item.protein) : "",
+      carbs: item.carbs != null ? String(item.carbs) : "",
+      fats: item.fats != null ? String(item.fats) : "",
+      grams: "",
+    });
+    setStatus("Loaded from database. Adjust grams if needed.");
+  };
+
+  const searchFood = async () => {
+    const query = searchQuery.trim();
+    if (!query) {
+      setStatus("Enter a food name to search.");
+      return;
+    }
+    setSearching(true);
+    setStatus("Searching food database...");
+    try {
+      const results = await fetchJson(
+        `/search-food?query=${encodeURIComponent(query)}`
+      );
+      setSearchResults(results);
+      setStatus(results.length ? "Select a match to prefill." : "No matches found.");
+    } catch (err) {
+      setStatus(err.message);
+    } finally {
+      setSearching(false);
+    }
+  };
+
   const logManual = async () => {
     if (!manual.food_name.trim()) {
       setStatus("Please enter a food name.");
@@ -320,26 +365,40 @@ export default function ScannerScreen() {
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <View style={styles.modeToggle}>
-        <Pressable
-          style={[
-            styles.toggleButton,
-            mode === MODES.AI && styles.toggleButtonActive,
-          ]}
-          onPress={() => setMode(MODES.AI)}
-        >
-          <Text style={styles.toggleText}>AI Food Snap</Text>
-        </Pressable>
-        <Pressable
-          style={[
-            styles.toggleButton,
-            mode === MODES.BARCODE && styles.toggleButtonActive,
-          ]}
-          onPress={() => setMode(MODES.BARCODE)}
-        >
-          <Text style={styles.toggleText}>Barcode Scan</Text>
-        </Pressable>
-      </View>
+      {!manualOnly ? (
+        <View style={styles.modeToggle}>
+          <Pressable
+            style={[
+              styles.toggleButton,
+              mode === MODES.AI && styles.toggleButtonActive,
+            ]}
+            onPress={() => setMode(MODES.AI)}
+            android_ripple={{ color: colors.softAccent }}
+          >
+            <Text style={styles.toggleText}>AI Food Snap</Text>
+          </Pressable>
+          <Pressable
+            style={[
+              styles.toggleButton,
+              mode === MODES.BARCODE && styles.toggleButtonActive,
+            ]}
+            onPress={() => setMode(MODES.BARCODE)}
+            android_ripple={{ color: colors.softAccent }}
+          >
+            <Text style={styles.toggleText}>Barcode Scan</Text>
+          </Pressable>
+          <Pressable
+            style={[
+              styles.toggleButton,
+              mode === MODES.MANUAL && styles.toggleButtonActive,
+            ]}
+            onPress={() => setMode(MODES.MANUAL)}
+            android_ripple={{ color: colors.softAccent }}
+          >
+            <Text style={styles.toggleText}>Manual</Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       <View style={styles.mealSelector}>
         {Array.from({ length: mealsPerDay }, (_, idx) => idx + 1).map((slot) => (
@@ -355,16 +414,34 @@ export default function ScannerScreen() {
           </Pressable>
         ))}
       </View>
+      {manualOnly ? (
+        <Pressable
+          style={({ pressed }) => [
+            styles.linkButton,
+            pressed && styles.linkButtonPressed,
+          ]}
+          onPress={() => {
+            setManualOnly(false);
+            navigation.setParams({ manualOnly: false });
+            setMode(MODES.AI);
+          }}
+          android_ripple={{ color: colors.softAccent }}
+        >
+          <Text style={styles.linkButtonText}>Switch to camera modes</Text>
+        </Pressable>
+      ) : null}
 
-      <CameraView
-        ref={cameraRef}
-        style={styles.camera}
-        barcodeScannerSettings={{
-          barcodeTypes: ["ean13", "ean8", "upc_a", "upc_e"],
-        }}
-        onBarcodeScanned={mode === MODES.BARCODE ? handleBarcodeScanned : undefined}
-      />
-      {mode === MODES.BARCODE && scanBanner ? (
+      {!manualOnly && mode !== MODES.MANUAL ? (
+        <CameraView
+          ref={cameraRef}
+          style={styles.camera}
+          barcodeScannerSettings={{
+            barcodeTypes: ["ean13", "ean8", "upc_a", "upc_e"],
+          }}
+          onBarcodeScanned={mode === MODES.BARCODE ? handleBarcodeScanned : undefined}
+        />
+      ) : null}
+      {!manualOnly && mode === MODES.BARCODE && scanBanner ? (
         <View style={styles.scanBanner}>
           <Text style={styles.scanBannerText} numberOfLines={2}>
             {scanBanner}
@@ -382,8 +459,16 @@ export default function ScannerScreen() {
         </View>
       ) : null}
 
-      {mode === MODES.AI && (
-        <Pressable style={styles.button} onPress={handleSnap} disabled={busy}>
+      {!manualOnly && mode === MODES.AI && (
+        <Pressable
+          style={({ pressed }) => [
+            styles.button,
+            pressed && styles.buttonPressed,
+          ]}
+          onPress={handleSnap}
+          disabled={busy}
+          android_ripple={{ color: colors.softAccent }}
+        >
           <Text style={styles.buttonText}>
             {busy ? "Working..." : "Capture Photo"}
           </Text>
@@ -549,30 +634,79 @@ export default function ScannerScreen() {
           {result.notes ? (
             <Text style={styles.muted}>{result.notes}</Text>
           ) : null}
-          <Pressable style={styles.button} onPress={logMeal} disabled={busy}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.button,
+              pressed && styles.buttonPressed,
+            ]}
+            onPress={logMeal}
+            disabled={busy}
+            android_ripple={{ color: colors.softAccent }}
+          >
             <Text style={styles.buttonText}>Log Meal</Text>
           </Pressable>
         </View>
       ) : null}
 
-      <Text style={styles.sectionTitle}>Recent Meals</Text>
-      {recents.length === 0 ? (
-        <Text style={styles.muted}>No recent meals yet.</Text>
-      ) : (
-        recents.map((meal) => (
-          <Pressable
-            key={meal.food_name}
-            style={styles.recentItem}
-            onPress={() => applyRecent(meal)}
-          >
-            <Text style={styles.recentName}>{meal.food_name}</Text>
-            <Text style={styles.recentMeta}>
-              {meal.calories} kcal · P {meal.protein}g · C {meal.carbs}g · F{" "}
-              {meal.fats}g
-            </Text>
-          </Pressable>
-        ))
-      )}
+      {!manualOnly ? (
+        <>
+          <Text style={styles.sectionTitle}>Recent Meals</Text>
+          {recents.length === 0 ? (
+            <Text style={styles.muted}>No recent meals yet.</Text>
+          ) : (
+            recents.map((meal) => (
+              <Pressable
+                key={meal.food_name}
+                style={styles.recentItem}
+                onPress={() => applyRecent(meal)}
+                android_ripple={{ color: colors.softAccent }}
+              >
+                <Text style={styles.recentName}>{meal.food_name}</Text>
+                <Text style={styles.recentMeta}>
+                  {meal.calories} kcal · P {meal.protein}g · C {meal.carbs}g · F{" "}
+                  {meal.fats}g
+                </Text>
+              </Pressable>
+            ))
+          )}
+        </>
+      ) : null}
+
+      <Text style={styles.sectionTitle}>Search Food Database</Text>
+      <View style={styles.searchRow}>
+        <TextInput
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          placeholder="e.g. chicken breast"
+          placeholderTextColor={colors.muted}
+          style={[styles.input, styles.searchInput]}
+        />
+        <Pressable
+          style={({ pressed }) => [
+            styles.searchButton,
+            pressed && styles.searchButtonPressed,
+          ]}
+          onPress={searchFood}
+          android_ripple={{ color: colors.softAccent }}
+        >
+          <Text style={styles.searchButtonText}>Search</Text>
+        </Pressable>
+      </View>
+      {searching ? <ActivityIndicator /> : null}
+      {searchResults.map((item, index) => (
+        <Pressable
+          key={`${item.food_name}-${index}`}
+          style={styles.searchResult}
+          onPress={() => applySearchResult(item)}
+          android_ripple={{ color: colors.softAccent }}
+        >
+          <Text style={styles.recentName}>{item.food_name}</Text>
+          <Text style={styles.recentMeta}>
+            {item.calories ?? "-"} kcal · P {item.protein ?? "-"}g · C{" "}
+            {item.carbs ?? "-"}g · F {item.fats ?? "-"}g
+          </Text>
+        </Pressable>
+      ))}
 
       <Text style={styles.sectionTitle}>Manual Entry</Text>
       <View style={styles.manualGroup}>
@@ -645,7 +779,15 @@ export default function ScannerScreen() {
             style={styles.input}
           />
         </View>
-        <Pressable style={styles.button} onPress={logManual} disabled={busy}>
+        <Pressable
+          style={({ pressed }) => [
+            styles.button,
+            pressed && styles.buttonPressed,
+          ]}
+          onPress={logManual}
+          disabled={busy}
+          android_ripple={{ color: colors.softAccent }}
+        >
           <Text style={styles.buttonText}>Save Manual Meal</Text>
         </Pressable>
         <Text style={styles.sectionTitle}>Plan next 7 days</Text>
@@ -711,6 +853,9 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 6 },
     elevation: 4,
   },
+  buttonPressed: {
+    opacity: 0.85,
+  },
   buttonText: {
     color: "#fff",
     fontFamily: fonts.medium,
@@ -748,6 +893,7 @@ const styles = StyleSheet.create({
   modeToggle: {
     flexDirection: "row",
     gap: 10,
+    flexWrap: "wrap",
   },
   mealSelector: {
     flexDirection: "row",
@@ -769,6 +915,20 @@ const styles = StyleSheet.create({
   mealChipText: {
     fontFamily: fonts.medium,
     color: colors.ink,
+  },
+  linkButton: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: colors.softAccent,
+  },
+  linkButtonPressed: {
+    opacity: 0.85,
+  },
+  linkButtonText: {
+    fontFamily: fonts.medium,
+    color: colors.accent,
   },
   toggleButton: {
     flex: 1,
@@ -794,6 +954,34 @@ const styles = StyleSheet.create({
     color: colors.ink,
   },
   recentItem: {
+    paddingVertical: 10,
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+  },
+  searchRow: {
+    flexDirection: "row",
+    gap: 10,
+    alignItems: "center",
+  },
+  searchInput: {
+    flex: 1,
+  },
+  searchButton: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  searchButtonPressed: {
+    backgroundColor: colors.softAccent,
+  },
+  searchButtonText: {
+    fontFamily: fonts.medium,
+    color: colors.ink,
+  },
+  searchResult: {
     paddingVertical: 10,
     borderBottomColor: colors.border,
     borderBottomWidth: 1,

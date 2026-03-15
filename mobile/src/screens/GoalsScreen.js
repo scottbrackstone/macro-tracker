@@ -20,6 +20,7 @@ export default function GoalsScreen() {
     fats: "",
     meals_per_day: "3",
   });
+  const [caloriesAuto, setCaloriesAuto] = useState(true);
   const [macroMode, setMacroMode] = useState("grams");
   const [autoFillMacro, setAutoFillMacro] = useState("none");
   const [profile, setProfile] = useState({
@@ -42,13 +43,15 @@ export default function GoalsScreen() {
         fetchJson("/weight-logs"),
         fetchJson("/profile"),
       ]);
+      const loadedCalories = targetResponse.calories ?? "";
       setMacroTarget({
-        calories: String(targetResponse.calories ?? ""),
+        calories: String(loadedCalories),
         protein: String(targetResponse.protein ?? ""),
         carbs: String(targetResponse.carbs ?? ""),
         fats: String(targetResponse.fats ?? ""),
         meals_per_day: String(targetResponse.meals_per_day ?? "3"),
       });
+      setCaloriesAuto(!(Number(loadedCalories) > 0));
       setWeightLogs(weightResponse);
       setProfile({
         age: String(profileResponse.age ?? ""),
@@ -71,6 +74,34 @@ export default function GoalsScreen() {
       loadData();
     }, [loadData])
   );
+
+  const computeEstimate = () => {
+    const age = Number(profile.age) || 0;
+    const height = Number(profile.height_cm) || 0;
+    const weight = Number(profile.weight_kg) || 0;
+    if (!age || !height || !weight) return null;
+    const isFemale = profile.sex === "female";
+    const bmr = isFemale
+      ? 10 * weight + 6.25 * height - 5 * age - 161
+      : 10 * weight + 6.25 * height - 5 * age + 5;
+    const activityMap = {
+      sedentary: 1.2,
+      light: 1.375,
+      moderate: 1.55,
+      active: 1.725,
+      very_active: 1.9,
+    };
+    const multiplier = activityMap[profile.activity_level] || 1.55;
+    return Math.round(bmr * multiplier);
+  };
+
+  useEffect(() => {
+    const estimate = computeEstimate();
+    setEstimatedCalories(estimate);
+    if (estimate && caloriesAuto) {
+      setMacroTarget((prev) => ({ ...prev, calories: String(estimate) }));
+    }
+  }, [profile, caloriesAuto]);
 
   const saveTargets = async () => {
     setStatus("Saving targets...");
@@ -148,29 +179,15 @@ export default function GoalsScreen() {
     }
   };
 
-  const estimateCalories = () => {
-    const age = Number(profile.age) || 0;
-    const height = Number(profile.height_cm) || 0;
-    const weight = Number(profile.weight_kg) || 0;
-    if (!age || !height || !weight) {
+  const applyEstimate = () => {
+    const estimate = computeEstimate();
+    if (!estimate) {
       setStatus("Enter age, height, and weight to estimate.");
       return;
     }
-    const isFemale = profile.sex === "female";
-    const bmr = isFemale
-      ? 10 * weight + 6.25 * height - 5 * age - 161
-      : 10 * weight + 6.25 * height - 5 * age + 5;
-    const activityMap = {
-      sedentary: 1.2,
-      light: 1.375,
-      moderate: 1.55,
-      active: 1.725,
-      very_active: 1.9,
-    };
-    const multiplier = activityMap[profile.activity_level] || 1.55;
-    const estimate = Math.round(bmr * multiplier);
     setEstimatedCalories(estimate);
     setMacroTarget((prev) => ({ ...prev, calories: String(estimate) }));
+    setCaloriesAuto(true);
   };
 
   const addWeight = async () => {
@@ -262,9 +279,10 @@ export default function GoalsScreen() {
             <Text style={styles.label}>Calories</Text>
             <TextInput
               value={macroTarget.calories}
-              onChangeText={(value) =>
-                setMacroTarget((prev) => ({ ...prev, calories: value }))
-              }
+              onChangeText={(value) => {
+                setCaloriesAuto(false);
+                setMacroTarget((prev) => ({ ...prev, calories: value }));
+              }}
               placeholder="Calories"
               placeholderTextColor={colors.muted}
               keyboardType="numeric"
@@ -360,7 +378,14 @@ export default function GoalsScreen() {
             style={styles.input}
           />
         </View>
-        <Pressable style={styles.primaryButton} onPress={saveTargets}>
+        <Pressable
+          style={({ pressed }) => [
+            styles.primaryButton,
+            pressed && styles.primaryButtonPressed,
+          ]}
+          onPress={saveTargets}
+          android_ripple={{ color: colors.softAccent }}
+        >
           <Text style={styles.primaryText}>Save Targets</Text>
         </Pressable>
       </View>
@@ -455,16 +480,33 @@ export default function GoalsScreen() {
           </View>
         </View>
         {estimatedCalories ? (
-          <Text style={styles.muted}>
-            Estimated maintenance: {estimatedCalories} kcal/day
-          </Text>
+          <View style={styles.estimateRow}>
+            <Text style={styles.muted}>
+              Estimated maintenance: {estimatedCalories} kcal/day
+              {caloriesAuto ? " (auto-filled)" : ""}
+            </Text>
+            <Pressable
+              style={({ pressed }) => [
+                styles.secondaryButton,
+                pressed && styles.secondaryButtonPressed,
+              ]}
+              onPress={applyEstimate}
+              android_ripple={{ color: colors.softAccent }}
+            >
+              <Text style={styles.secondaryText}>Use estimate</Text>
+            </Pressable>
+          </View>
         ) : null}
         <View style={styles.row}>
-          <Pressable style={styles.secondaryButton} onPress={saveProfile}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.secondaryButton,
+              pressed && styles.secondaryButtonPressed,
+            ]}
+            onPress={saveProfile}
+            android_ripple={{ color: colors.softAccent }}
+          >
             <Text style={styles.secondaryText}>Save Profile</Text>
-          </Pressable>
-          <Pressable style={styles.primaryButton} onPress={estimateCalories}>
-            <Text style={styles.primaryText}>Estimate Calories</Text>
           </Pressable>
         </View>
       </View>
@@ -494,7 +536,14 @@ export default function GoalsScreen() {
             />
           </View>
         </View>
-        <Pressable style={styles.primaryButton} onPress={addWeight}>
+        <Pressable
+          style={({ pressed }) => [
+            styles.primaryButton,
+            pressed && styles.primaryButtonPressed,
+          ]}
+          onPress={addWeight}
+          android_ripple={{ color: colors.softAccent }}
+        >
           <Text style={styles.primaryText}>Add Weight</Text>
         </Pressable>
 
@@ -534,6 +583,7 @@ export default function GoalsScreen() {
               <Pressable
                 style={styles.deleteButton}
                 onPress={() => deleteWeight(log.id)}
+                android_ripple={{ color: colors.softDanger }}
               >
                 <Text style={styles.deleteText}>Delete</Text>
               </Pressable>
@@ -646,6 +696,9 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 6 },
     elevation: 4,
   },
+  primaryButtonPressed: {
+    opacity: 0.85,
+  },
   primaryText: {
     color: "#fff",
     fontFamily: fonts.medium,
@@ -659,9 +712,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flex: 1,
   },
+  secondaryButtonPressed: {
+    backgroundColor: colors.softAccent,
+  },
   secondaryText: {
     color: colors.ink,
     fontFamily: fonts.medium,
+  },
+  estimateRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
   },
   muted: {
     color: colors.muted,

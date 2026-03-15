@@ -51,3 +51,37 @@ def fetch_barcode(barcode: str) -> BarcodeResult:
         brand=product.get("brands"),
         serving_size=product.get("serving_size"),
     )
+
+
+def search_foods(query: str, limit: int = 10) -> list[BarcodeResult]:
+    url = "https://world.openfoodfacts.org/cgi/search.pl"
+    params = {
+        "search_terms": query,
+        "search_simple": 1,
+        "action": "process",
+        "json": 1,
+        "page_size": limit,
+    }
+    response = requests.get(url, params=params, timeout=10)
+    response.raise_for_status()
+    payload = response.json()
+
+    results: list[BarcodeResult] = []
+    for product in payload.get("products", [])[:limit]:
+        nutriments = product.get("nutriments", {})
+        calories = _safe_int(nutriments.get("energy-kcal_100g"))
+        protein = _safe_float(nutriments.get("proteins_100g"))
+        carbs = _safe_float(nutriments.get("carbohydrates_100g"))
+        fats = _safe_float(nutriments.get("fat_100g"))
+        results.append(
+            BarcodeResult(
+                food_name=product.get("product_name") or "Unknown item",
+                calories=calories,
+                protein=protein,
+                carbs=carbs,
+                fats=fats,
+                brand=product.get("brands"),
+                serving_size=product.get("serving_size"),
+            )
+        )
+    return results
