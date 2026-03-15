@@ -3,10 +3,13 @@ from __future__ import annotations
 from typing import Any
 
 import requests
-from requests import HTTPError
+from requests import HTTPError, RequestException
 
 from ..schemas import BarcodeResult
 
+DEFAULT_HEADERS = {
+    "User-Agent": "MacroTracker/1.0 (contact: support@example.com)",
+}
 
 def _safe_float(value: Any) -> float | None:
     try:
@@ -24,7 +27,7 @@ def _safe_int(value: Any) -> int | None:
 
 def fetch_barcode(barcode: str) -> BarcodeResult:
     url = f"https://world.openfoodfacts.org/api/v2/product/{barcode}.json"
-    response = requests.get(url, timeout=10)
+    response = requests.get(url, timeout=10, headers=DEFAULT_HEADERS)
     try:
         response.raise_for_status()
     except HTTPError as exc:
@@ -62,9 +65,18 @@ def search_foods(query: str, limit: int = 10) -> list[BarcodeResult]:
         "json": 1,
         "page_size": limit,
     }
-    response = requests.get(url, params=params, timeout=10)
-    response.raise_for_status()
-    payload = response.json()
+    try:
+        response = requests.get(url, params=params, timeout=10, headers=DEFAULT_HEADERS)
+        response.raise_for_status()
+        payload = response.json()
+    except RequestException:
+        fallback_url = "https://world.openfoodfacts.org/api/v2/search"
+        fallback_params = {"search_terms": query, "page_size": limit}
+        response = requests.get(
+            fallback_url, params=fallback_params, timeout=10, headers=DEFAULT_HEADERS
+        )
+        response.raise_for_status()
+        payload = response.json()
 
     results: list[BarcodeResult] = []
     for product in payload.get("products", [])[:limit]:

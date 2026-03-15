@@ -364,4 +364,4 @@ def search_food(query: str) -> List[BarcodeResult]:
     try:
         return search_foods(query)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail="Food search failed.") from exc
+        raise HTTPException(status_code=502, detail=f"Food search failed: {exc}") from exc
