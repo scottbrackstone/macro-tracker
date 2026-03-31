@@ -40,6 +40,8 @@ export default function ScannerScreen() {
   const [mealSlot, setMealSlot] = useState(1);
   const [mealsPerDay, setMealsPerDay] = useState(3);
   const [manualOnly, setManualOnly] = useState(false);
+  const [targetDate, setTargetDate] = useState(null);
+  const [showMenu, setShowMenu] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
   const [searching, setSearching] = useState(false);
@@ -71,6 +73,13 @@ export default function ScannerScreen() {
   const formatDayNumber = (dateValue) =>
     dateValue.toLocaleDateString(undefined, { day: "numeric" });
   const formatNumber = (value) => Number(value || 0).toFixed(1);
+  const buildTargetTimestamp = () => {
+    if (!targetDate) return null;
+    const date = new Date(targetDate);
+    if (Number.isNaN(date.getTime())) return null;
+    date.setHours(12, 0, 0, 0);
+    return date.toISOString();
+  };
   const buildDate = (offset) => {
     const base = new Date();
     const next = new Date(base);
@@ -125,8 +134,14 @@ export default function ScannerScreen() {
     if (route.params?.manualOnly) {
       setManualOnly(true);
       setMode(MODES.MANUAL);
+      setShowMenu(false);
     } else {
       setManualOnly(false);
+    }
+    if (route.params?.targetDate) {
+      setTargetDate(route.params.targetDate);
+    } else {
+      setTargetDate(null);
     }
     if (route.params?.editLog) {
       const log = route.params.editLog;
@@ -141,8 +156,16 @@ export default function ScannerScreen() {
         meal_slot: log.meal_slot || 1,
       });
       setStatus("Editing meal. Update and save.");
+      setShowMenu(false);
     } else {
       setEditLogId(null);
+    }
+    if (route.params?.startMode) {
+      setMode(route.params.startMode);
+      setManualOnly(route.params.startMode === MODES.MANUAL);
+      setShowMenu(false);
+    } else if (!route.params?.manualOnly && !route.params?.editLog) {
+      setShowMenu(true);
     }
   }, [route.params]);
 
@@ -235,6 +258,7 @@ export default function ScannerScreen() {
       const baseProtein = Number(draft.protein) || 0;
       const baseCarbs = Number(draft.carbs) || 0;
       const baseFats = Number(draft.fats) || 0;
+      const targetTimestamp = buildTargetTimestamp();
       const endpoint = isEdit ? `/log-meal/${editLogId}` : "/log-meal";
       const method = isEdit ? "PUT" : "POST";
       await fetchJson(endpoint, {
@@ -253,6 +277,7 @@ export default function ScannerScreen() {
           base_carbs: baseCarbs,
           base_fats: baseFats,
           meal_slot: result.meal_slot || 1,
+          timestamp: targetTimestamp,
         }),
       });
       if (!isEdit && planDays.length > 0) {
@@ -326,6 +351,56 @@ export default function ScannerScreen() {
       loadRecents();
     }, [loadRecents])
   );
+
+  const startLogMode = (nextMode) => {
+    setShowMenu(false);
+    setMode(nextMode);
+    setManualOnly(nextMode === MODES.MANUAL);
+    setStatus("");
+  };
+
+  if (showMenu) {
+    return (
+      <ScrollView contentContainerStyle={styles.container}>
+        <Text style={styles.title}>Log Food</Text>
+        <Text style={styles.muted}>Choose a logging method</Text>
+        <View style={styles.menuCard}>
+          <Pressable
+            style={styles.menuButton}
+            onPress={() => startLogMode(MODES.AI)}
+            android_ripple={{ color: colors.softAccent }}
+          >
+            <Text style={styles.menuTitle}>Meal Scan</Text>
+            <Text style={styles.muted}>Snap a photo and review macros</Text>
+          </Pressable>
+          <Pressable
+            style={styles.menuButton}
+            onPress={() => startLogMode(MODES.BARCODE)}
+            android_ripple={{ color: colors.softAccent }}
+          >
+            <Text style={styles.menuTitle}>Barcode Scan</Text>
+            <Text style={styles.muted}>Scan packaged foods fast</Text>
+          </Pressable>
+          <Pressable
+            style={styles.menuButton}
+            onPress={() => startLogMode(MODES.MANUAL)}
+            android_ripple={{ color: colors.softAccent }}
+          >
+            <Text style={styles.menuTitle}>Manual Entry</Text>
+            <Text style={styles.muted}>Search or type macros</Text>
+          </Pressable>
+          <Pressable
+            style={styles.menuButton}
+            onPress={() => navigation.navigate("Planner")}
+            android_ripple={{ color: colors.softAccent }}
+          >
+            <Text style={styles.menuTitle}>Plan Ahead</Text>
+            <Text style={styles.muted}>Schedule meals for future days</Text>
+          </Pressable>
+        </View>
+      </ScrollView>
+    );
+  }
 
   const handleManualChange = (key, value) => {
     setManual((prev) => ({ ...prev, [key]: value }));
@@ -457,6 +532,7 @@ export default function ScannerScreen() {
       const baseProtein = Number(manual.protein) || 0;
       const baseCarbs = Number(manual.carbs) || 0;
       const baseFats = Number(manual.fats) || 0;
+      const targetTimestamp = buildTargetTimestamp();
       await fetchJson("/log-meal", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -473,6 +549,7 @@ export default function ScannerScreen() {
           base_carbs: baseCarbs,
           base_fats: baseFats,
           meal_slot: mealSlot,
+          timestamp: targetTimestamp,
         }),
       });
       if (planDays.length > 0) {
@@ -1134,6 +1211,33 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 12,
     backgroundColor: colors.background,
+  },
+  title: {
+    fontSize: 24,
+    fontFamily: fonts.bold,
+    color: colors.ink,
+  },
+  menuCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 12,
+    gap: 8,
+  },
+  menuButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    gap: 4,
+  },
+  menuTitle: {
+    fontFamily: fonts.medium,
+    color: colors.ink,
+    fontSize: 16,
   },
   center: {
     flex: 1,

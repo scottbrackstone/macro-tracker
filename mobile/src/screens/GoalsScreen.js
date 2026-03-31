@@ -35,7 +35,8 @@ export default function GoalsScreen() {
   const [weightNotes, setWeightNotes] = useState("");
   const [weightLogs, setWeightLogs] = useState([]);
   const [status, setStatus] = useState("");
-  const formatNumber = (value) => Number(value || 0).toFixed(1);
+  const formatMacroNumber = (value) => Number(value || 0).toFixed(0);
+  const formatWeightNumber = (value) => Number(value || 0).toFixed(1);
 
   const loadData = useCallback(async () => {
     try {
@@ -143,17 +144,31 @@ export default function GoalsScreen() {
         }
       }
 
+      const roundedCalories = Math.max(0, Math.round(calories));
+      const roundedProtein = Math.max(0, Math.round(protein));
+      const roundedCarbs = Math.max(0, Math.round(carbs));
+      const roundedFats = Math.max(0, Math.round(fats));
+
       await fetchJson("/macro-target", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          calories,
-          protein,
-          carbs,
-          fats,
+          calories: roundedCalories,
+          protein: roundedProtein,
+          carbs: roundedCarbs,
+          fats: roundedFats,
           meals_per_day: Number(macroTarget.meals_per_day) || 3,
         }),
       });
+      if (macroMode === "grams") {
+        setMacroTarget((prev) => ({
+          ...prev,
+          calories: String(roundedCalories),
+          protein: String(roundedProtein),
+          carbs: String(roundedCarbs),
+          fats: String(roundedFats),
+        }));
+      }
       setStatus("Targets saved.");
     } catch (err) {
       setStatus(err.message);
@@ -342,21 +357,21 @@ export default function GoalsScreen() {
           <View style={styles.macroNote}>
             <Text style={styles.muted}>
               Estimated grams: P{" "}
-              {formatNumber(
+              {formatMacroNumber(
                 (Number(macroTarget.calories) *
                   (Number(macroTarget.protein) || 0)) /
                   100 /
                   4
               )}{" "}
               g · C{" "}
-              {formatNumber(
+              {formatMacroNumber(
                 (Number(macroTarget.calories) *
                   (Number(macroTarget.carbs) || 0)) /
                   100 /
                   4
               )}{" "}
               g · F{" "}
-              {formatNumber(
+              {formatMacroNumber(
                 (Number(macroTarget.calories) *
                   (Number(macroTarget.fats) || 0)) /
                   100 /
@@ -482,13 +497,14 @@ export default function GoalsScreen() {
         </View>
         {estimatedCalories ? (
           <View style={styles.estimateRow}>
-            <Text style={styles.muted}>
-            Estimated maintenance: {formatNumber(estimatedCalories)} kcal/day
+            <Text style={[styles.muted, styles.estimateText]}>
+            Estimated maintenance: {formatMacroNumber(estimatedCalories)} kcal/day
             {caloriesAuto ? " (auto-filled)" : ""}
           </Text>
             <Pressable
               style={({ pressed }) => [
                 styles.secondaryButton,
+                styles.estimateButton,
                 pressed && styles.secondaryButtonPressed,
               ]}
               onPress={applyEstimate}
@@ -563,7 +579,7 @@ export default function GoalsScreen() {
                 <View style={styles.weightMeta}>
                   <Text style={styles.weightLabel}>{log.log_date}</Text>
                   <Text style={styles.weightValue}>
-                    {formatNumber(log.weight)}
+                    {formatWeightNumber(log.weight)}
                   </Text>
                 </View>
               </View>
@@ -577,7 +593,9 @@ export default function GoalsScreen() {
           weightLogs.map((log) => (
             <View key={log.id} style={styles.logItem}>
               <View style={styles.logInfo}>
-                <Text style={styles.logValue}>{formatNumber(log.weight)}</Text>
+                <Text style={styles.logValue}>
+                  {formatWeightNumber(log.weight)}
+                </Text>
                 <Text style={styles.logDate}>{log.log_date}</Text>
                 {log.notes ? (
                   <Text style={styles.logNotes}>{log.notes}</Text>
@@ -726,7 +744,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    flexWrap: "wrap",
     gap: 8,
+  },
+  estimateText: {
+    flex: 1,
+    minWidth: 180,
+  },
+  estimateButton: {
+    flex: 0,
+    paddingHorizontal: 16,
   },
   muted: {
     color: colors.muted,

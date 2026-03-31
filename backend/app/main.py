@@ -26,6 +26,8 @@ from .schemas import (
     DailyLogCreate,
     DailyLogRead,
     DailySummary,
+    FoodAnalysisItem,
+    FoodAnalysisResponse,
     FoodItemCreate,
     FoodItemFavorite,
     FoodItemRead,
@@ -346,6 +348,49 @@ def daily_summaries(
         )
         cursor = cursor + timedelta(days=1)
     return results
+
+
+@app.get("/food-analysis", response_model=FoodAnalysisResponse)
+def food_analysis(
+    start_date: date, end_date: date, session: Session = Depends(get_session)
+) -> FoodAnalysisResponse:
+    if end_date < start_date:
+        raise HTTPException(status_code=400, detail="Invalid date range.")
+    start = datetime.combine(start_date, time.min)
+    end = datetime.combine(end_date, time.max)
+    logs = session.exec(
+        select(DailyLog)
+        .where(DailyLog.timestamp >= start)
+        .where(DailyLog.timestamp <= end)
+    ).all()
+    summary: dict[str, FoodAnalysisItem] = {}
+    for log in logs:
+        key = log.food_name.strip().lower()
+        if not key:
+            continue
+        if key not in summary:
+            summary[key] = FoodAnalysisItem(
+                food_name=log.food_name,
+                calories=0,
+                protein=0,
+                carbs=0,
+                fats=0,
+                count=0,
+            )
+        item = summary[key]
+        item.calories += log.calories or 0
+        item.protein += log.protein or 0
+        item.carbs += log.carbs or 0
+        item.fats += log.fats or 0
+        item.count += 1
+
+    items = list(summary.values())
+    top_calories = sorted(items, key=lambda x: x.calories, reverse=True)[:5]
+    top_protein = sorted(items, key=lambda x: x.protein, reverse=True)[:5]
+    return FoodAnalysisResponse(
+        top_calories=top_calories,
+        top_protein=top_protein,
+    )
 
 
 @app.get("/daily-logs", response_model=List[DailyLogRead])

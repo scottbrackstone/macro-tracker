@@ -8,6 +8,10 @@ import { colors, fonts } from "../theme";
 export default function InsightsScreen() {
   const [rangeDays, setRangeDays] = useState(7);
   const [summaries, setSummaries] = useState([]);
+  const [weightLogs, setWeightLogs] = useState([]);
+  const [analysis, setAnalysis] = useState({ top_calories: [], top_protein: [] });
+  const [fastingStart, setFastingStart] = useState(null);
+  const [fastingNow, setFastingNow] = useState(Date.now());
   const [targets, setTargets] = useState({
     calories: 0,
     protein: 0,
@@ -29,12 +33,17 @@ export default function InsightsScreen() {
       today
     )}`;
     try {
-      const [summaryResponse, targetResponse] = await Promise.all([
-        fetchJson(`/daily-summaries?${params}`),
-        fetchJson("/macro-target"),
-      ]);
+      const [summaryResponse, targetResponse, weightResponse, analysisResponse] =
+        await Promise.all([
+          fetchJson(`/daily-summaries?${params}`),
+          fetchJson("/macro-target"),
+          fetchJson("/weight-logs?limit=30"),
+          fetchJson(`/food-analysis?${params}`),
+        ]);
       setSummaries(summaryResponse);
       setTargets(targetResponse);
+      setWeightLogs(weightResponse);
+      setAnalysis(analysisResponse);
     } catch (err) {
       setStatus(err.message);
     }
@@ -43,6 +52,13 @@ export default function InsightsScreen() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setFastingNow(Date.now());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   const totals = useMemo(() => {
     return summaries.reduce(
@@ -86,6 +102,48 @@ export default function InsightsScreen() {
     ...summaries.map((day) => day.calories || 0)
   );
 
+  const macroSplit = useMemo(() => {
+    const proteinCals = averages.protein * 4;
+    const carbCals = averages.carbs * 4;
+    const fatCals = averages.fats * 9;
+    const total = proteinCals + carbCals + fatCals || 1;
+    return {
+      protein: proteinCals,
+      carbs: carbCals,
+      fats: fatCals,
+      total,
+    };
+  }, [averages]);
+
+  const weightTrend = useMemo(() => {
+    if (weightLogs.length < 2) {
+      return { changePerWeek: 0, projected: null, latest: null };
+    }
+    const sorted = [...weightLogs].sort(
+      (a, b) => new Date(a.log_date) - new Date(b.log_date)
+    );
+    const first = sorted[0];
+    const last = sorted[sorted.length - 1];
+    const days =
+      (new Date(last.log_date) - new Date(first.log_date)) / (1000 * 60 * 60 * 24);
+    const delta = (last.weight || 0) - (first.weight || 0);
+    const perDay = days ? delta / days : 0;
+    return {
+      changePerWeek: perDay * 7,
+      projected: (last.weight || 0) + perDay * 30,
+      latest: last.weight || 0,
+    };
+  }, [weightLogs]);
+
+  const fastingElapsed = useMemo(() => {
+    if (!fastingStart) return "00:00";
+    const diffMs = Math.max(0, fastingNow - fastingStart);
+    const totalMinutes = Math.floor(diffMs / 60000);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+  }, [fastingStart, fastingNow]);
+
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>Weekly Insights</Text>
@@ -114,6 +172,38 @@ export default function InsightsScreen() {
         </Text>
         <Text style={styles.muted}>
           {adherence.hits} of {summaries.length} days within 10% of calorie target
+        </Text>
+      </View>
+
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Macro Split</Text>
+        <View style={styles.splitBar}>
+          <View
+            style={[
+              styles.splitSegment,
+              styles.splitProtein,
+              { flex: macroSplit.protein / macroSplit.total },
+            ]}
+          />
+          <View
+            style={[
+              styles.splitSegment,
+              styles.splitCarbs,
+              { flex: macroSplit.carbs / macroSplit.total },
+            ]}
+          />
+          <View
+            style={[
+              styles.splitSegment,
+              styles.splitFats,
+              { flex: macroSplit.fats / macroSplit.total },
+            ]}
+          />
+        </View>
+        <Text style={styles.muted}>
+          Protein {formatNumber((macroSplit.protein / macroSplit.total) * 100)}% ·
+          Carbs {formatNumber((macroSplit.carbs / macroSplit.total) * 100)}% · Fats{" "}
+          {formatNumber((macroSplit.fats / macroSplit.total) * 100)}%
         </Text>
       </View>
 
@@ -168,6 +258,63 @@ export default function InsightsScreen() {
               </View>
             </View>
           ))
+        )}
+      </View>
+
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Food Analysis</Text>
+        {analysis.top_calories.length === 0 ? (
+          <Text style={styles.muted}>Log more meals to see insights.</Text>
+        ) : (
+          <>
+            <Text style={styles.sectionLabel}>Top calories</Text>
+            {analysis.top_calories.map((item) => (
+              <Text key={`cal-${item.food_name}`} style={styles.muted}>
+                {item.food_name} · {formatNumber(item.calories)} kcal
+              </Text>
+            ))}
+            <Text style={styles.sectionLabel}>Top protein</Text>
+            {analysis.top_protein.map((item) => (
+              <Text key={`pro-${item.food_name}`} style={styles.muted}>
+                {item.food_name} · {formatNumber(item.protein)} g
+              </Text>
+            ))}
+          </>
+        )}
+      </View>
+
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Fasting Timer</Text>
+        <Text style={styles.bigValue}>{fastingElapsed}</Text>
+        <Pressable
+          style={styles.secondaryButton}
+          onPress={() =>
+            setFastingStart((prev) => (prev ? null : Date.now()))
+          }
+          android_ripple={{ color: colors.softAccent }}
+        >
+          <Text style={styles.secondaryText}>
+            {fastingStart ? "Stop fast" : "Start fast"}
+          </Text>
+        </Pressable>
+      </View>
+
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Weight Projection</Text>
+        {weightLogs.length < 2 ? (
+          <Text style={styles.muted}>Log at least 2 weigh-ins to see trends.</Text>
+        ) : (
+          <>
+            <Text style={styles.bigValue}>
+              {formatNumber(weightTrend.latest)} kg
+            </Text>
+            <Text style={styles.muted}>
+              {formatNumber(weightTrend.changePerWeek)} kg / week
+            </Text>
+            <Text style={styles.muted}>
+              30-day projection: {formatNumber(weightTrend.projected)} kg
+            </Text>
+          </>
         )}
       </View>
     </ScrollView>
@@ -231,6 +378,41 @@ const styles = StyleSheet.create({
   muted: {
     color: colors.muted,
     fontFamily: fonts.regular,
+  },
+  sectionLabel: {
+    fontFamily: fonts.medium,
+    color: colors.ink,
+    marginTop: 6,
+  },
+  splitBar: {
+    height: 12,
+    borderRadius: 999,
+    overflow: "hidden",
+    flexDirection: "row",
+  },
+  splitSegment: {
+    height: "100%",
+  },
+  splitProtein: {
+    backgroundColor: colors.accent,
+  },
+  splitCarbs: {
+    backgroundColor: "#F5B06D",
+  },
+  splitFats: {
+    backgroundColor: "#7ED0F2",
+  },
+  secondaryButton: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingVertical: 10,
+    borderRadius: 10,
+    alignItems: "center",
+    backgroundColor: colors.surface,
+  },
+  secondaryText: {
+    fontFamily: fonts.medium,
+    color: colors.ink,
   },
   trendItem: {
     gap: 6,

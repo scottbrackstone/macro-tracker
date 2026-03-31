@@ -1,4 +1,5 @@
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { Pressable } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -6,6 +7,7 @@ import DashboardScreen from "../screens/DashboardScreen";
 import GoalsScreen from "../screens/GoalsScreen";
 import InsightsScreen from "../screens/InsightsScreen";
 import LibraryScreen from "../screens/LibraryScreen";
+import PlannerScreen from "../screens/PlannerScreen";
 import ScannerScreen from "../screens/ScannerScreen";
 import { colors, fonts } from "../theme";
 
@@ -45,20 +47,47 @@ export default function RootTabs() {
         tabBarIcon: ({ color, focused, size }) => {
           const iconMap = {
             Dashboard: focused ? "home" : "home-outline",
-            Scanner: focused ? "scan" : "scan-outline",
+            Scanner: focused ? "add-circle" : "add-circle-outline",
             Library: focused ? "book" : "book-outline",
             Insights: focused ? "analytics" : "analytics-outline",
+            Planner: focused ? "calendar" : "calendar-outline",
             Goals: focused ? "stats-chart" : "stats-chart-outline",
           };
           return (
-            <Ionicons name={iconMap[route.name]} size={size ?? 20} color={color} />
+            <Ionicons
+              name={iconMap[route.name]}
+              size={route.name === "Scanner" ? 30 : size ?? 20}
+              color={route.name === "Scanner" ? colors.accent : color}
+            />
           );
         },
       })}
     >
-      <Tab.Screen name="Dashboard" component={DashboardScreen} />
-      <Tab.Screen name="Scanner" component={ScannerScreen} />
+      <Tab.Screen
+        name="Dashboard"
+        component={DashboardScreen}
+        options={{ title: "Today", tabBarLabel: "Today" }}
+      />
+      <Tab.Screen
+        name="Scanner"
+        component={ScannerScreen}
+        options={{
+          title: "Log",
+          tabBarLabel: "Log",
+          tabBarButton: (props) => (
+            <Pressable
+              {...props}
+              style={[
+                props.style,
+                { backgroundColor: colors.softAccent, borderRadius: 18 },
+              ]}
+              android_ripple={{ color: colors.softAccent }}
+            />
+          ),
+        }}
+      />
       <Tab.Screen name="Library" component={LibraryScreen} />
+      <Tab.Screen name="Planner" component={PlannerScreen} />
       <Tab.Screen name="Insights" component={InsightsScreen} />
       <Tab.Screen name="Goals" component={GoalsScreen} />
     </Tab.Navigator>

@@ -47,6 +47,20 @@ class DailySummary(SQLModel):
     fats: float
 
 
+class FoodAnalysisItem(SQLModel):
+    food_name: str
+    calories: int
+    protein: float
+    carbs: float
+    fats: float
+    count: int
+
+
+class FoodAnalysisResponse(SQLModel):
+    top_calories: list[FoodAnalysisItem]
+    top_protein: list[FoodAnalysisItem]
+
+
 class RecentMeal(SQLModel):
     food_name: str
     calories: int

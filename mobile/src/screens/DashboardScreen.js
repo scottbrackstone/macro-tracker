@@ -585,7 +585,7 @@ export default function DashboardScreen() {
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.title}>Daily Overview</Text>
+      <Text style={styles.title}>Today</Text>
       <Text style={styles.subtitle}>
         {selectedDate.toLocaleDateString()}
       </Text>
@@ -638,6 +638,22 @@ export default function DashboardScreen() {
         unit="g"
       />
 
+      <View style={styles.cardRow}>
+        <View style={styles.statCard}>
+          <Text style={styles.statLabel}>Streak</Text>
+          <Text style={styles.statValue}>{streak} days</Text>
+          <Text style={styles.muted}>Keep logging daily</Text>
+        </View>
+        <View style={styles.statCard}>
+          <Text style={styles.statLabel}>Adherence</Text>
+          <Text style={styles.statValue}>{adherence.percent}%</Text>
+          <Text style={styles.muted}>
+            {adherence.hits}/{weeklySummaries.length} days
+          </Text>
+        </View>
+      </View>
+
+      <Text style={styles.sectionTitle}>Healthy Habits</Text>
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Water</Text>
         <Text style={styles.streakBadge}>
@@ -701,6 +717,19 @@ export default function DashboardScreen() {
         ) : (
           <Text style={styles.muted}>No water logged yet.</Text>
         )}
+      </View>
+
+      <View style={styles.habitRow}>
+        <View style={styles.habitCard}>
+          <Text style={styles.statLabel}>Steps</Text>
+          <Text style={styles.statValue}>--</Text>
+          <Text style={styles.muted}>Connect soon</Text>
+        </View>
+        <View style={styles.habitCard}>
+          <Text style={styles.statLabel}>Exercise</Text>
+          <Text style={styles.statValue}>0 min</Text>
+          <Text style={styles.muted}>Log workouts</Text>
+        </View>
       </View>
 
       <View style={styles.sectionHeader}>
@@ -908,7 +937,7 @@ export default function DashboardScreen() {
         </View>
       ) : (
         mealSlots.map((slot) => (
-          <View key={slot} style={styles.mealBlock}>
+            <View key={slot} style={styles.mealBlock}>
             <View style={styles.mealHeader}>
               <Text style={styles.mealTitle}>{getMealLabel(slot)}</Text>
               <Pressable
@@ -924,9 +953,16 @@ export default function DashboardScreen() {
                 }
                 android_ripple={{ color: colors.softAccent }}
               >
-                <Text style={styles.addButtonText}>+ Add</Text>
+                <Text style={styles.addButtonText}>Log</Text>
               </Pressable>
             </View>
+            <Text style={styles.mealMeta}>
+              Target {formatNumber(mealCaloriesTarget)} kcal · Remaining{" "}
+              {formatNumber(
+                Math.max(0, mealCaloriesTarget - (mealTotals[slot]?.calories || 0))
+              )}{" "}
+              kcal
+            </Text>
             {groupedMeals[slot] && groupedMeals[slot].length > 0 ? (
               <Text style={styles.mealMeta}>
                 {formatNumber(mealTotals[slot]?.calories)} kcal · P{" "}
@@ -1091,6 +1127,29 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginTop: 16,
     gap: 12,
+  },
+  cardRow: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: colors.surface,
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: 6,
+  },
+  statLabel: {
+    fontFamily: fonts.medium,
+    color: colors.muted,
+    fontSize: 12,
+  },
+  statValue: {
+    fontFamily: fonts.bold,
+    color: colors.ink,
+    fontSize: 18,
   },
   diaryActions: {
     gap: 8,
@@ -1309,6 +1368,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: 10,
+  },
+  habitRow: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  habitCard: {
+    flex: 1,
+    backgroundColor: colors.surface,
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: 6,
   },
   error: {
     color: colors.danger,

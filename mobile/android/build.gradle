@@ -1,0 +1,50 @@
+// Top-level build file where you can add configuration options common to all sub-projects/modules.
+buildscript {
+  // 1. ADDED EXT BLOCK: This explicitly tells React Native and Expo which versions to use
+  ext {
+    buildToolsVersion = "35.0.0"
+    minSdkVersion = 24
+    compileSdkVersion = 36
+    targetSdkVersion = 36
+    ndkVersion = "28.0.12674087"
+    kotlinVersion = "2.1.20"
+  }
+  repositories {
+    google()
+    mavenCentral()
+  }
+  dependencies {
+    classpath('com.android.tools.build:gradle:8.13.2')
+    classpath('com.facebook.react:react-native-gradle-plugin')
+    classpath('org.jetbrains.kotlin:kotlin-gradle-plugin:2.2.10')
+  }
+}
+
+allprojects {
+  tasks.withType(JavaCompile) {
+    javaCompiler = javaToolchains.compilerFor {
+      // 2. CHANGED TO JAVA 17: Required for modern Android builds
+      languageVersion = JavaLanguageVersion.of(17)
+    }
+  }
+}
+
+allprojects {
+  repositories {
+    google()
+    mavenCentral()
+    maven { url 'https://www.jitpack.io' }
+  }
+}
+
+// Workaround for failing generatePCH task in expo-modules-core
+subprojects {
+    tasks.configureEach { task ->
+        if (task.name.contains("generatePCH")) {
+            task.enabled = false
+        }
+    }
+}
+
+apply plugin: "expo-root-project"
+apply plugin: "com.facebook.react.rootproject"

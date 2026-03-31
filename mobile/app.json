@@ -4,6 +4,16 @@
     "slug": "macro-tracker",
     "version": "1.0.0",
     "orientation": "portrait",
-    "platforms": ["ios", "android", "web"]
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ],
+    "android": {
+      "package": "com.anonymous.macrotracker"
+    },
+    "ios": {
+      "bundleIdentifier": "com.anonymous.macrotracker"
+    }
   }
 }
