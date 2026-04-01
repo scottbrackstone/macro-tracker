@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Optional
 
 from sqlmodel import Field, SQLModel
@@ -216,3 +216,19 @@ class WaterLogRead(SQLModel):
     id: int
     timestamp: datetime
     amount_ml: int
+
+
+class ExerciseLogCreate(SQLModel):
+    name: str
+    calories_burned: int = 0
+    duration_minutes: Optional[int] = None
+    timestamp: Optional[datetime] = None
+
+
+class ExerciseLogRead(SQLModel):
+    id: int
+    timestamp: datetime
+    log_date: date
+    name: str
+    calories_burned: int
+    duration_minutes: Optional[int] = None

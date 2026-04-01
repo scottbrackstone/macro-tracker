@@ -13,6 +13,7 @@ from .db import get_session, init_db
 from .models import (
     CustomFood,
     DailyLog,
+    ExerciseLog,
     FoodItem,
     MacroTarget,
     Recipe,
@@ -26,6 +27,8 @@ from .schemas import (
     DailyLogCreate,
     DailyLogRead,
     DailySummary,
+    ExerciseLogCreate,
+    ExerciseLogRead,
     FoodAnalysisItem,
     FoodAnalysisResponse,
     FoodItemCreate,
@@ -471,6 +474,47 @@ def delete_water_log(log_id: int, session: Session = Depends(get_session)) -> di
     log = session.get(WaterLog, log_id)
     if not log:
         raise HTTPException(status_code=404, detail="Water log not found.")
+    session.delete(log)
+    session.commit()
+    return {"status": "deleted", "id": log_id}
+
+
+@app.get("/exercise-logs", response_model=List[ExerciseLogRead])
+def get_exercise_logs(
+    target_date: date | None = None, session: Session = Depends(get_session)
+) -> List[ExerciseLog]:
+    log_date = target_date or date.today()
+    logs = session.exec(
+        select(ExerciseLog)
+        .where(ExerciseLog.log_date == log_date)
+        .order_by(ExerciseLog.timestamp.desc())
+    ).all()
+    return logs
+
+
+@app.post("/exercise-logs", response_model=ExerciseLogRead)
+def create_exercise_log(
+    payload: ExerciseLogCreate, session: Session = Depends(get_session)
+) -> ExerciseLog:
+    ts = payload.timestamp or datetime.utcnow()
+    log = ExerciseLog(
+        name=payload.name,
+        calories_burned=payload.calories_burned,
+        duration_minutes=payload.duration_minutes,
+        timestamp=ts,
+        log_date=ts.date(),
+    )
+    session.add(log)
+    session.commit()
+    session.refresh(log)
+    return log
+
+
+@app.delete("/exercise-logs/{log_id}")
+def delete_exercise_log(log_id: int, session: Session = Depends(get_session)) -> dict:
+    log = session.get(ExerciseLog, log_id)
+    if not log:
+        raise HTTPException(status_code=404, detail="Exercise log not found.")
     session.delete(log)
     session.commit()
     return {"status": "deleted", "id": log_id}

@@ -7,11 +7,18 @@ import DashboardScreen from "../screens/DashboardScreen";
 import GoalsScreen from "../screens/GoalsScreen";
 import InsightsScreen from "../screens/InsightsScreen";
 import LibraryScreen from "../screens/LibraryScreen";
-import PlannerScreen from "../screens/PlannerScreen";
 import ScannerScreen from "../screens/ScannerScreen";
 import { colors, fonts } from "../theme";
 
 const Tab = createBottomTabNavigator();
+
+const TAB_ICONS = {
+  Today: { focused: "home", outline: "home-outline" },
+  Log: { focused: "add-circle", outline: "add-circle-outline" },
+  Library: { focused: "book", outline: "book-outline" },
+  Progress: { focused: "bar-chart", outline: "bar-chart-outline" },
+  Goals: { focused: "trophy", outline: "trophy-outline" },
+};
 
 export default function RootTabs() {
   const insets = useSafeAreaInsets();
@@ -23,8 +30,8 @@ export default function RootTabs() {
         tabBarStyle: {
           borderTopWidth: 0,
           backgroundColor: colors.surface,
-          height: 64 + insets.bottom,
-          paddingBottom: 8 + insets.bottom,
+          height: 62 + insets.bottom,
+          paddingBottom: 6 + insets.bottom,
           paddingTop: 8,
           shadowColor: "#0B1B39",
           shadowOpacity: 0.08,
@@ -33,63 +40,60 @@ export default function RootTabs() {
           elevation: 8,
         },
         tabBarItemStyle: {
-          borderRadius: 16,
-          marginHorizontal: 6,
-          marginVertical: 6,
+          borderRadius: 14,
+          marginHorizontal: 4,
+          marginVertical: 4,
         },
         tabBarActiveBackgroundColor: colors.softAccent,
         tabBarActiveTintColor: colors.accent,
         tabBarInactiveTintColor: colors.muted,
         tabBarLabelStyle: {
           fontFamily: fonts.medium,
-          fontSize: 12,
+          fontSize: 11,
         },
-        tabBarIcon: ({ color, focused, size }) => {
-          const iconMap = {
-            Dashboard: focused ? "home" : "home-outline",
-            Scanner: focused ? "add-circle" : "add-circle-outline",
-            Library: focused ? "book" : "book-outline",
-            Insights: focused ? "analytics" : "analytics-outline",
-            Planner: focused ? "calendar" : "calendar-outline",
-            Goals: focused ? "stats-chart" : "stats-chart-outline",
-          };
-          return (
-            <Ionicons
-              name={iconMap[route.name]}
-              size={route.name === "Scanner" ? 30 : size ?? 20}
-              color={route.name === "Scanner" ? colors.accent : color}
-            />
-          );
+        tabBarIcon: ({ color, focused }) => {
+          const icons = TAB_ICONS[route.name];
+          const name = icons ? (focused ? icons.focused : icons.outline) : "ellipse-outline";
+          const size = route.name === "Log" ? 28 : 22;
+          const iconColor = route.name === "Log" ? colors.accent : color;
+          return <Ionicons name={name} size={size} color={iconColor} />;
         },
       })}
     >
       <Tab.Screen
-        name="Dashboard"
+        name="Today"
         component={DashboardScreen}
-        options={{ title: "Today", tabBarLabel: "Today" }}
+        options={{ title: "Today" }}
       />
       <Tab.Screen
-        name="Scanner"
+        name="Log"
         component={ScannerScreen}
         options={{
           title: "Log",
-          tabBarLabel: "Log",
           tabBarButton: (props) => (
             <Pressable
               {...props}
-              style={[
-                props.style,
-                { backgroundColor: colors.softAccent, borderRadius: 18 },
-              ]}
+              style={[props.style, { backgroundColor: colors.softAccent, borderRadius: 14 }]}
               android_ripple={{ color: colors.softAccent }}
             />
           ),
         }}
       />
-      <Tab.Screen name="Library" component={LibraryScreen} />
-      <Tab.Screen name="Planner" component={PlannerScreen} />
-      <Tab.Screen name="Insights" component={InsightsScreen} />
-      <Tab.Screen name="Goals" component={GoalsScreen} />
+      <Tab.Screen
+        name="Library"
+        component={LibraryScreen}
+        options={{ title: "Library" }}
+      />
+      <Tab.Screen
+        name="Progress"
+        component={InsightsScreen}
+        options={{ title: "Progress" }}
+      />
+      <Tab.Screen
+        name="Goals"
+        component={GoalsScreen}
+        options={{ title: "Goals" }}
+      />
     </Tab.Navigator>
   );
 }

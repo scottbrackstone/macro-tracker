@@ -90,3 +90,12 @@ class Recipe(SQLModel, table=True):
     fats: float
     ingredients_json: str = "[]"
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+
+
+class ExerciseLog(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    timestamp: datetime = Field(default_factory=datetime.utcnow, index=True)
+    log_date: date = Field(default_factory=date.today, index=True)
+    name: str
+    calories_burned: int = 0
+    duration_minutes: Optional[int] = None
