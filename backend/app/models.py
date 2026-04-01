@@ -26,6 +26,7 @@ class DailyLog(SQLModel, table=True):
     carbs: float
     fats: float
     grams: Optional[float] = None
+    fiber: Optional[float] = None
     base_calories: Optional[int] = None
     base_protein: Optional[float] = None
     base_carbs: Optional[float] = None

@@ -12,15 +12,21 @@ import { useFocusEffect, useNavigation } from "@react-navigation/native";
 
 import { fetchJson, ping } from "../api/client";
 import CalorieRing from "../components/CalorieRing";
-import MacroPie from "../components/MacroPie";
+import MacroPie, { MACRO_COLORS } from "../components/MacroPie";
 import ProgressBar from "../components/ProgressBar";
 import { colors, fonts } from "../theme";
+
+const MacroChip = ({ label, value, color }) => (
+  <View style={{ backgroundColor: color + "22", borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+    <Text style={{ fontFamily: fonts.medium, fontSize: 11, color }}>{label} {Math.round(value)}g</Text>
+  </View>
+);
 
 const mealLabels = ["Breakfast", "Lunch", "Dinner", "Snack"];
 const getMealLabel = (slot) =>
   mealLabels[slot - 1] ?? `Meal ${slot}`;
-const formatNum = (v) => Number(v || 0).toFixed(1);
 const fmt = (v) => Math.round(Number(v || 0));
+const fmtMacro = (v) => Math.round(Number(v || 0));
 const formatDateParam = (d) => d.toISOString().slice(0, 10);
 const formatDayLabel = (d) => d.toLocaleDateString(undefined, { weekday: "short" });
 const formatDayNumber = (d) => d.toLocaleDateString(undefined, { day: "numeric" });
@@ -134,6 +140,11 @@ export default function DashboardScreen() {
     () => exerciseLogs.reduce((s, l) => s + (l.calories_burned || 0), 0),
     [exerciseLogs]
   );
+  const totalFiber = useMemo(
+    () => dailyLogs.reduce((s, l) => s + (l.fiber || 0), 0),
+    [dailyLogs]
+  );
+  const netCarbs = Math.max(0, fmt(summary.carbs) - fmt(totalFiber));
   const waterTotal = useMemo(
     () => waterLogs.reduce((s, l) => s + (l.amount_ml || 0), 0),
     [waterLogs]
@@ -380,7 +391,7 @@ export default function DashboardScreen() {
         <TextInput value={editDraft.food_name} onChangeText={(v) => setEditDraft((p) => ({ ...p, food_name: v }))}
           placeholder="Food name" placeholderTextColor={colors.muted} style={styles.input} />
       </View>
-      <Text style={styles.muted}>Per 100g: {formatNum(editDraft.base_calories)} kcal · P {formatNum(editDraft.base_protein)}g · C {formatNum(editDraft.base_carbs)}g · F {formatNum(editDraft.base_fats)}g</Text>
+      <Text style={styles.muted}>Per 100g: {fmtMacro(editDraft.base_calories)} kcal · P {fmtMacro(editDraft.base_protein)}g · C {fmtMacro(editDraft.base_carbs)}g · F {fmtMacro(editDraft.base_fats)}g</Text>
       <View style={styles.field}>
         <Text style={styles.label}>Grams</Text>
         <TextInput value={editDraft.grams} onChangeText={(v) => setEditDraft((p) => ({ ...p, grams: v }))}
@@ -388,7 +399,7 @@ export default function DashboardScreen() {
       </View>
       {(() => {
         const f = (Number(editDraft.grams) || 100) / 100;
-        return <Text style={styles.muted}>Total: {formatNum(Number(editDraft.base_calories) * f)} kcal · P {formatNum(Number(editDraft.base_protein) * f)}g · C {formatNum(Number(editDraft.base_carbs) * f)}g · F {formatNum(Number(editDraft.base_fats) * f)}g</Text>;
+        return <Text style={styles.muted}>Total: {fmtMacro(Number(editDraft.base_calories) * f)} kcal · P {fmtMacro(Number(editDraft.base_protein) * f)}g · C {fmtMacro(Number(editDraft.base_carbs) * f)}g · F {fmtMacro(Number(editDraft.base_fats) * f)}g</Text>;
       })()}
       <View style={styles.editActions}>
         <Pressable style={({ pressed }) => [styles.secondaryButton, pressed && styles.secondaryButtonPressed]} onPress={cancelEdit} android_ripple={{ color: colors.softAccent }}>
@@ -406,9 +417,16 @@ export default function DashboardScreen() {
       {editingMeal === meal.id ? renderEditFields(meal) : (
         <>
           <Pressable style={styles.logInfo} onPress={() => startEdit(meal)} android_ripple={{ color: colors.softAccent }}>
-            <Text style={styles.recentName}>{meal.food_name}</Text>
-            <Text style={styles.recentMeta}>{fmt(meal.calories)} kcal · P {formatNum(meal.protein)}g · C {formatNum(meal.carbs)}g · F {formatNum(meal.fats)}g</Text>
-            <Text style={styles.logSource}>{meal.source}</Text>
+            <View style={styles.logTopRow}>
+              <Text style={styles.recentName} numberOfLines={1}>{meal.food_name}</Text>
+              <Text style={styles.logCalories}>{fmt(meal.calories)} kcal</Text>
+            </View>
+            <View style={styles.macroChipsRow}>
+              <MacroChip label="P" value={meal.protein} color={MACRO_COLORS.protein} />
+              <MacroChip label="C" value={meal.carbs} color={MACRO_COLORS.carbs} />
+              <MacroChip label="F" value={meal.fats} color={MACRO_COLORS.fats} />
+              {meal.fiber > 0 && <MacroChip label="Fiber" value={meal.fiber} color="#6B7280" />}
+            </View>
           </Pressable>
           <View style={styles.logActions}>
             <Pressable style={styles.iconBtn} onPress={() => handleCopyMeal(meal)} android_ripple={{ color: colors.softAccent }}>
@@ -465,25 +483,30 @@ export default function DashboardScreen() {
           <CalorieRing consumed={summary.calories} goal={targets.calories || 0} exerciseBurned={exerciseBurned} />
           <MacroPie protein={summary.protein} carbs={summary.carbs} fats={summary.fats} targets={targets} />
         </View>
+        {totalFiber > 0 && (
+          <View style={styles.netCarbsBadge}>
+            <Text style={styles.netCarbsText}>Net Carbs: {netCarbs}g  ·  Fiber: {fmt(totalFiber)}g</Text>
+          </View>
+        )}
         <View style={styles.calorieBreakdownRow}>
           <View style={styles.calorieBreakdownItem}>
-            <Text style={styles.breakdownLabel}>Food</Text>
             <Text style={styles.breakdownValue}>{fmt(summary.calories)}</Text>
+            <Text style={styles.breakdownLabel}>Food</Text>
           </View>
           <Text style={styles.breakdownSep}>−</Text>
           <View style={styles.calorieBreakdownItem}>
-            <Text style={styles.breakdownLabel}>Exercise</Text>
             <Text style={[styles.breakdownValue, { color: "#10B981" }]}>{fmt(exerciseBurned)}</Text>
+            <Text style={styles.breakdownLabel}>Exercise</Text>
           </View>
           <Text style={styles.breakdownSep}>=</Text>
           <View style={styles.calorieBreakdownItem}>
-            <Text style={styles.breakdownLabel}>Net</Text>
-            <Text style={styles.breakdownValue}>{fmt(summary.calories - exerciseBurned)}</Text>
+            <Text style={styles.breakdownValue}>{fmt(Math.max(0, targets.calories - summary.calories + exerciseBurned))}</Text>
+            <Text style={styles.breakdownLabel}>Remaining</Text>
           </View>
           <Text style={styles.breakdownSep}>·</Text>
           <View style={styles.calorieBreakdownItem}>
-            <Text style={styles.breakdownLabel}>Goal</Text>
             <Text style={styles.breakdownValue}>{fmt(targets.calories)}</Text>
+            <Text style={styles.breakdownLabel}>Goal</Text>
           </View>
         </View>
       </View>
@@ -613,7 +636,7 @@ export default function DashboardScreen() {
             <Pressable style={styles.mealHeader} onPress={() => toggleCollapse(slot)} android_ripple={{ color: colors.softAccent }}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.mealTitle}>{getMealLabel(slot)}</Text>
-                <Text style={styles.mealMeta}>{fmt(slotTotal.calories)} kcal · P {formatNum(slotTotal.protein)}g · C {formatNum(slotTotal.carbs)}g · F {formatNum(slotTotal.fats)}g</Text>
+                <Text style={styles.mealMeta}>{fmt(slotTotal.calories)} kcal · P {fmtMacro(slotTotal.protein)}g · C {fmtMacro(slotTotal.carbs)}g · F {fmtMacro(slotTotal.fats)}g</Text>
               </View>
               <View style={styles.mealHeaderRight}>
                 <Pressable style={({ pressed }) => [styles.logBtn, pressed && styles.addButtonPressed]}
@@ -681,7 +704,7 @@ export default function DashboardScreen() {
             <View key={meal.food_name} style={styles.recentItem}>
               <View style={styles.logInfo}>
                 <Text style={styles.recentName}>{meal.food_name}</Text>
-                <Text style={styles.recentMeta}>{fmt(meal.calories)} kcal · P {formatNum(meal.protein)}g · C {formatNum(meal.carbs)}g · F {formatNum(meal.fats)}g</Text>
+                <Text style={styles.recentMeta}>{fmt(meal.calories)} kcal · P {fmtMacro(meal.protein)}g · C {fmtMacro(meal.carbs)}g · F {fmtMacro(meal.fats)}g</Text>
               </View>
               <Pressable style={({ pressed }) => [styles.secondaryButton, pressed && styles.secondaryButtonPressed]}
                 onPress={() => navigation.navigate("Scanner", { manualOnly: true, prefill: { food_name: meal.food_name, calories: meal.calories, protein: meal.protein, carbs: meal.carbs, fats: meal.fats } })}
@@ -721,6 +744,8 @@ const styles = StyleSheet.create({
   // hero
   heroCard: { backgroundColor: colors.surface, borderRadius: 20, padding: 20, borderWidth: 1, borderColor: colors.border, marginBottom: 16 },
   heroContent: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16 },
+  netCarbsBadge: { backgroundColor: "#F0FFF4", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6, alignSelf: "center", marginTop: 10 },
+  netCarbsText: { fontFamily: fonts.medium, fontSize: 12, color: "#065F46" },
   calorieBreakdownRow: { flexDirection: "row", justifyContent: "space-around", alignItems: "center", marginTop: 16, paddingTop: 14, borderTopWidth: 1, borderTopColor: colors.border },
   calorieBreakdownItem: { alignItems: "center" },
   breakdownLabel: { fontFamily: fonts.regular, fontSize: 11, color: colors.muted },
@@ -761,10 +786,13 @@ const styles = StyleSheet.create({
   mealMeta: { fontFamily: fonts.regular, fontSize: 12, color: colors.muted, marginTop: 2 },
   logBtn: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: colors.accent, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 },
   logBtnText: { fontFamily: fonts.medium, fontSize: 12, color: "#fff" },
-  logItem: { flexDirection: "row", alignItems: "center", borderTopWidth: 1, borderTopColor: colors.border, paddingHorizontal: 14, paddingVertical: 10 },
+  logItem: { flexDirection: "row", alignItems: "center", borderTopWidth: 1, borderTopColor: colors.border, paddingHorizontal: 14, paddingVertical: 10, gap: 8 },
   logItemEditing: { flexDirection: "column", alignItems: "stretch" },
   logInfo: { flex: 1 },
-  logActions: { flexDirection: "row", gap: 6 },
+  logTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 },
+  logCalories: { fontFamily: fonts.bold, fontSize: 13, color: colors.ink },
+  macroChipsRow: { flexDirection: "row", gap: 5, flexWrap: "wrap" },
+  logActions: { flexDirection: "row", gap: 4 },
   logSource: { fontFamily: fonts.regular, fontSize: 11, color: colors.muted, marginTop: 2 },
   iconBtn: { padding: 6, borderRadius: 8, backgroundColor: colors.background },
   iconBtnDanger: { padding: 6, borderRadius: 8, backgroundColor: colors.softDanger },

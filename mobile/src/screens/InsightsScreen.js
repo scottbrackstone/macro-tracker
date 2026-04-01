@@ -7,8 +7,8 @@ import MacroPie, { MACRO_COLORS } from "../components/MacroPie";
 import ProgressBar from "../components/ProgressBar";
 import { colors, fonts } from "../theme";
 
-const fmt = (v) => Number(v || 0).toFixed(1);
-const fmtInt = (v) => Math.round(Number(v || 0));
+const fmtWeight = (v) => Number(v || 0).toFixed(1);
+const fmt = (v) => Math.round(Number(v || 0));
 const formatDateParam = (d) => d.toISOString().slice(0, 10);
 const formatShort = (d) => new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 const formatDay = (d) => new Date(d).toLocaleDateString(undefined, { weekday: "short" });
@@ -121,7 +121,7 @@ export default function InsightsScreen() {
           <Text style={styles.statLabel}>On target</Text>
         </View>
         <View style={styles.statCard}>
-          <Text style={styles.statValue}>{fmtInt(averages.calories)}</Text>
+          <Text style={styles.statValue}>{fmt(averages.calories)}</Text>
           <Text style={styles.statLabel}>Avg kcal</Text>
         </View>
         <View style={styles.statCard}>
@@ -148,12 +148,12 @@ export default function InsightsScreen() {
                   <View style={{ flex: 1 }}>
                     <View style={styles.macroLabelRow}>
                       <Text style={styles.macroLabel}>{m.label}</Text>
-                      <Text style={styles.macroValue}>{fmtInt(m.value)}g</Text>
+                      <Text style={styles.macroValue}>{fmt(m.value)}g</Text>
                     </View>
                     <View style={styles.macroBarTrack}>
                       <View style={[styles.macroBarFill, { width: `${Math.min((m.value / (m.target || 1)) * 100, 100)}%`, backgroundColor: m.color }]} />
                     </View>
-                    <Text style={styles.macroSub}>{pct}% of calories · goal {fmtInt(m.target)}g</Text>
+                    <Text style={styles.macroSub}>{pct}% of calories · goal {fmt(m.target)}g</Text>
                   </View>
                 </View>
               );
@@ -171,7 +171,7 @@ export default function InsightsScreen() {
             const onTarget = targets.calories && day.calories >= targets.calories * 0.9 && day.calories <= targets.calories * 1.1;
             return (
               <View key={day.date} style={styles.vertBarCol}>
-                <Text style={styles.vertBarVal}>{day.calories > 0 ? fmtInt(day.calories) : ""}</Text>
+                <Text style={styles.vertBarVal}>{day.calories > 0 ? fmt(day.calories) : ""}</Text>
                 <View style={styles.vertBarTrack}>
                   <View style={[styles.vertBarFill, { height: `${h}%`, backgroundColor: onTarget ? "#10B981" : colors.accent }]} />
                 </View>
@@ -209,7 +209,7 @@ export default function InsightsScreen() {
               <View key={`cal-${item.food_name}`} style={styles.analysisItem}>
                 <View style={styles.analysisLabelRow}>
                   <Text style={styles.analysisName} numberOfLines={1}>{item.food_name}</Text>
-                  <Text style={styles.analysisVal}>{fmtInt(item.calories)} kcal</Text>
+                  <Text style={styles.analysisVal}>{fmt(item.calories)} kcal</Text>
                 </View>
                 <View style={styles.analysisBarTrack}>
                   <View style={[styles.analysisBarFill, { width: `${(item.calories / maxAnalysisCals) * 100}%`, backgroundColor: MACRO_COLORS.carbs }]} />
@@ -227,7 +227,7 @@ export default function InsightsScreen() {
                 <View style={styles.analysisBarTrack}>
                   <View style={[styles.analysisBarFill, { width: `${(item.protein / maxAnalysisProtein) * 100}%`, backgroundColor: MACRO_COLORS.protein }]} />
                 </View>
-                <Text style={styles.analysisSub}>{item.count}× logged · {fmtInt(item.calories)} kcal</Text>
+                <Text style={styles.analysisSub}>{item.count}× logged · {fmt(item.calories)} kcal</Text>
               </View>
             ))}
           </>
@@ -258,17 +258,17 @@ export default function InsightsScreen() {
           <Text style={styles.muted}>Log at least 2 weigh-ins to see trends.</Text>
         ) : (
           <>
-            <Text style={styles.bigValue}>{fmt(weightTrend.latest)} kg</Text>
+            <Text style={styles.bigValue}>{fmtWeight(weightTrend.latest)} kg</Text>
             <View style={styles.trendRow}>
               <View style={styles.trendItem}>
                 <Ionicons name={weightTrend.changePerWeek < 0 ? "trending-down" : "trending-up"} size={18}
                   color={weightTrend.changePerWeek < 0 ? "#10B981" : MACRO_COLORS.carbs} />
-                <Text style={styles.trendValue}>{fmt(Math.abs(weightTrend.changePerWeek))} kg/wk</Text>
+                <Text style={styles.trendValue}>{fmtWeight(Math.abs(weightTrend.changePerWeek))} kg/wk</Text>
                 <Text style={styles.muted}>{weightTrend.changePerWeek < 0 ? "losing" : "gaining"}</Text>
               </View>
               <View style={styles.trendItem}>
                 <Ionicons name="calendar" size={18} color={colors.accent} />
-                <Text style={styles.trendValue}>{fmt(weightTrend.projected)} kg</Text>
+                <Text style={styles.trendValue}>{fmtWeight(weightTrend.projected)} kg</Text>
                 <Text style={styles.muted}>30-day proj.</Text>
               </View>
             </View>
@@ -276,7 +276,7 @@ export default function InsightsScreen() {
               {weightLogs.slice(0, 5).map((log) => (
                 <View key={log.id} style={styles.weightRow}>
                   <Text style={styles.weightDate}>{formatShort(log.log_date)}</Text>
-                  <Text style={styles.weightVal}>{fmt(log.weight)} kg</Text>
+                  <Text style={styles.weightVal}>{fmtWeight(log.weight)} kg</Text>
                   {log.notes ? <Text style={[styles.muted, { flex: 1 }]} numberOfLines={1}>{log.notes}</Text> : null}
                 </View>
               ))}

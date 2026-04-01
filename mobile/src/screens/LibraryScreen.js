@@ -44,7 +44,7 @@ export default function LibraryScreen() {
   const [recipeSearching, setRecipeSearching] = useState(false);
   const navigation = useNavigation();
 
-  const formatNumber = (value) => Number(value || 0).toFixed(1);
+  const formatNumber = (value) => Math.round(Number(value || 0));
 
   const loadFoods = useCallback(async () => {
     try {

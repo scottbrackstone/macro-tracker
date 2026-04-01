@@ -72,7 +72,9 @@ export default function ScannerScreen() {
     dateValue.toLocaleDateString(undefined, { weekday: "short" });
   const formatDayNumber = (dateValue) =>
     dateValue.toLocaleDateString(undefined, { day: "numeric" });
-  const formatNumber = (value) => Number(value || 0).toFixed(1);
+  const mealLabels = ["Breakfast", "Lunch", "Dinner", "Snack"];
+  const getMealLabel = (slot) => mealLabels[slot - 1] ?? `Meal ${slot}`;
+  const formatNumber = (value) => Math.round(Number(value || 0));
   const buildTargetTimestamp = () => {
     if (!targetDate) return null;
     const date = new Date(targetDate);
@@ -258,6 +260,7 @@ export default function ScannerScreen() {
       const baseProtein = Number(draft.protein) || 0;
       const baseCarbs = Number(draft.carbs) || 0;
       const baseFats = Number(draft.fats) || 0;
+      const baseFiber = draft.fiber !== "" && draft.fiber != null ? Number(draft.fiber) : null;
       const targetTimestamp = buildTargetTimestamp();
       const endpoint = isEdit ? `/log-meal/${editLogId}` : "/log-meal";
       const method = isEdit ? "PUT" : "POST";
@@ -268,14 +271,15 @@ export default function ScannerScreen() {
           food_name: draft.food_name || result.food_name,
           source: result.source,
           calories: Math.round(baseCalories * factor),
-          protein: baseProtein * factor,
-          carbs: baseCarbs * factor,
-          fats: baseFats * factor,
-          grams: gramsUsed,
+          protein: Math.round(baseProtein * factor),
+          carbs: Math.round(baseCarbs * factor),
+          fats: Math.round(baseFats * factor),
+          grams: Math.round(gramsUsed),
+          fiber: baseFiber != null ? baseFiber * factor : null,
           base_calories: Math.round(baseCalories),
-          base_protein: baseProtein,
-          base_carbs: baseCarbs,
-          base_fats: baseFats,
+          base_protein: Math.round(baseProtein),
+          base_carbs: Math.round(baseCarbs),
+          base_fats: Math.round(baseFats),
           meal_slot: result.meal_slot || 1,
           timestamp: targetTimestamp,
         }),
@@ -540,14 +544,14 @@ export default function ScannerScreen() {
           food_name: manual.food_name.trim(),
           source: "Manual",
           calories: Math.round(baseCalories * factor),
-          protein: baseProtein * factor,
-          carbs: baseCarbs * factor,
-          fats: baseFats * factor,
-          grams: gramsUsed,
+          protein: Math.round(baseProtein * factor),
+          carbs: Math.round(baseCarbs * factor),
+          fats: Math.round(baseFats * factor),
+          grams: Math.round(gramsUsed),
           base_calories: Math.round(baseCalories),
-          base_protein: baseProtein,
-          base_carbs: baseCarbs,
-          base_fats: baseFats,
+          base_protein: Math.round(baseProtein),
+          base_carbs: Math.round(baseCarbs),
+          base_fats: Math.round(baseFats),
           meal_slot: mealSlot,
           timestamp: targetTimestamp,
         }),
@@ -673,7 +677,7 @@ export default function ScannerScreen() {
             ]}
             onPress={() => setMealSlot(slot)}
           >
-            <Text style={styles.mealChipText}>Meal {slot}</Text>
+            <Text style={styles.mealChipText}>{getMealLabel(slot)}</Text>
           </Pressable>
         ))}
       </View>
@@ -840,18 +844,31 @@ export default function ScannerScreen() {
                   />
                 </View>
                 <View style={styles.field}>
-                  <Text style={styles.label}>Multiplier</Text>
+                  <Text style={styles.label}>Fiber (g) — net carbs</Text>
                   <TextInput
-                    value={draft.multiplier}
+                    value={draft.fiber ?? ""}
                     onChangeText={(value) =>
-                      setDraft((prev) => ({ ...prev, multiplier: value }))
+                      setDraft((prev) => ({ ...prev, fiber: value }))
                     }
-                    placeholder="e.g. 0.5, 1, 1.5"
+                    placeholder="0"
                     placeholderTextColor={colors.muted}
                     keyboardType="numeric"
                     style={[styles.input, styles.halfInput]}
                   />
                 </View>
+              </View>
+              <View style={styles.field}>
+                <Text style={styles.label}>Multiplier</Text>
+                <TextInput
+                  value={draft.multiplier}
+                  onChangeText={(value) =>
+                    setDraft((prev) => ({ ...prev, multiplier: value }))
+                  }
+                  placeholder="e.g. 0.5, 1, 1.5"
+                  placeholderTextColor={colors.muted}
+                  keyboardType="numeric"
+                  style={styles.input}
+                />
               </View>
               <Text style={styles.sectionTitle}>Quick grams</Text>
               <View style={styles.presetRow}>
